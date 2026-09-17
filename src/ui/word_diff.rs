@@ -1,21 +1,47 @@
 //! Word diff: highlights the tokens that differ between the two lines of a
 //! line pair. This module owns the token rule; the renderers do not.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
+use ratatui::text::Span;
 use similar::{Algorithm, DiffTag, capture_diff_slices};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::ui::text_utils::merge_touching_ranges;
+use crate::app::App;
+use crate::model::{DiffHunk, DiffLine, LineOrigin};
+use crate::theme::Theme;
+use crate::ui::styles;
+use crate::ui::text_utils::{apply_highlight_ranges_spans, merge_touching_ranges};
 use crate::vcs::DiffWhitespaceMode;
 
 /// The word ranges of one line pair. Each side's ranges index that side's
 /// content, in ascending order, and never overlap. A dissimilar pair has
 /// none, like an identical one.
 #[derive(Debug, Default)]
-pub struct WordRanges {
+pub(crate) struct WordRanges {
     pub deletion: Vec<Range<usize>>,
     pub addition: Vec<Range<usize>>,
+}
+
+/// Patch the word background over `ranges` of `line`'s content spans. The
+/// style is chosen by the line's origin and whether the line is syntax
+/// highlighted. It is background-only, so syntax foreground survives. Empty
+/// ranges return the spans unchanged.
+pub(crate) fn apply_word_highlight(
+    theme: &Theme,
+    line: &DiffLine,
+    ranges: &[Range<usize>],
+    spans: Vec<Span<'static>>,
+) -> Vec<Span<'static>> {
+    // Only deletion and addition lines carry ranges.
+    let syntax_highlighted = line.highlighted_spans.is_some();
+    let word_style = if line.origin == LineOrigin::Addition {
+        styles::word_add_style(theme, syntax_highlighted)
+    } else {
+        styles::word_del_style(theme, syntax_highlighted)
+    };
+    apply_highlight_ranges_spans(spans, ranges, word_style)
 }
 
 /// The largest share of a line pair's non-whitespace characters that word
@@ -26,6 +52,84 @@ pub struct WordRanges {
 /// mostly one edit inside a kept line, such as a rename to a longer name or
 /// an added argument, and above it unrelated lines become common.
 const MAX_CHANGED_SHARE: f64 = 0.6;
+
+/// Word ranges for a line pair under the session's settings; empty when the
+/// pair is dissimilar. The renderers compute a pair's ranges here, the one
+/// place the session's settings are applied.
+///
+/// A syntax-highlighted line is displayed as its spans' text, so that text is
+/// diffed and the ranges index it; a plain line is displayed as its content.
+pub(crate) fn line_pair_ranges(app: &App, deletion: &DiffLine, addition: &DiffLine) -> WordRanges {
+    word_ranges(
+        &displayed_text(deletion),
+        &displayed_text(addition),
+        app.diff_whitespace_mode(),
+    )
+}
+
+fn displayed_text(line: &DiffLine) -> Cow<'_, str> {
+    match &line.highlighted_spans {
+        Some(spans) => spans.iter().map(|(_, text)| text.as_str()).collect(),
+        None => Cow::Borrowed(&line.content),
+    }
+}
+
+/// Word ranges for the lines of one hunk, for a renderer that walks the
+/// hunk's lines flat. Lines are paired through the hunk's change blocks, and
+/// a pair is diffed the first time either of its lines is asked for, so
+/// off-screen rows cost nothing and a visible pair is diffed once.
+pub(crate) struct HunkWordRanges<'a> {
+    hunk: &'a DiffHunk,
+    /// Each line's partner in its line pair, indexed like the hunk's lines.
+    partners: Vec<Option<usize>>,
+    /// Each line's ranges once its pair has been diffed. Unpaired lines and
+    /// the lines of a dissimilar pair get an empty vector.
+    ranges: Vec<Option<Vec<Range<usize>>>>,
+}
+
+impl<'a> HunkWordRanges<'a> {
+    pub(crate) fn new(hunk: &'a DiffHunk) -> Self {
+        let mut partners = vec![None; hunk.lines.len()];
+        for block in hunk.change_blocks() {
+            for (deletion, addition) in block.rows() {
+                if let (Some(deletion), Some(addition)) = (deletion, addition) {
+                    partners[deletion] = Some(addition);
+                    partners[addition] = Some(deletion);
+                }
+            }
+        }
+        Self {
+            hunk,
+            partners,
+            ranges: vec![None; hunk.lines.len()],
+        }
+    }
+
+    /// The word ranges of the hunk's line at `idx`, indexing its displayed
+    /// text.
+    pub(crate) fn for_line(&mut self, app: &App, idx: usize) -> &[Range<usize>] {
+        if self.ranges[idx].is_none() {
+            self.diff_pair_of(app, idx);
+        }
+        self.ranges[idx]
+            .as_deref()
+            .expect("diff_pair_of fills the line's ranges")
+    }
+
+    fn diff_pair_of(&mut self, app: &App, idx: usize) {
+        let Some(partner) = self.partners[idx] else {
+            self.ranges[idx] = Some(Vec::new());
+            return;
+        };
+        let (deletion, addition) = match self.hunk.lines[idx].origin {
+            LineOrigin::Deletion => (idx, partner),
+            _ => (partner, idx),
+        };
+        let pair = line_pair_ranges(app, &self.hunk.lines[deletion], &self.hunk.lines[addition]);
+        self.ranges[deletion] = Some(pair.deletion);
+        self.ranges[addition] = Some(pair.addition);
+    }
+}
 
 /// Word ranges for a line pair; empty when the pair is dissimilar.
 ///
@@ -39,11 +143,7 @@ const MAX_CHANGED_SHARE: f64 = 0.6;
 /// sides exceed [`MAX_CHANGED_SHARE`] of the pair's non-whitespace characters.
 /// Identical lines yield empty ranges; an empty side against a non-empty
 /// side is dissimilar.
-pub fn word_ranges(
-    deletion: &str,
-    addition: &str,
-    whitespace_mode: DiffWhitespaceMode,
-) -> WordRanges {
+fn word_ranges(deletion: &str, addition: &str, whitespace_mode: DiffWhitespaceMode) -> WordRanges {
     let ignore_whitespace = whitespace_mode.ignores_all();
     let deletion_tokens = Tokens::of(deletion, ignore_whitespace);
     let addition_tokens = Tokens::of(addition, ignore_whitespace);
@@ -451,5 +551,101 @@ mod tests {
         assert_eq!(ranges.deletion, vec![11..14]);
         assert_eq!(ranges.addition, vec![11..14]);
         assert_eq!(&deletion[ranges.deletion[0].clone()], "bar");
+    }
+}
+
+/// Fixtures and buffer probes shared by the two views' word-diff render
+/// tests, so both assert on the same marked text.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::path::PathBuf;
+
+    use ratatui::buffer::Buffer;
+    use ratatui::style::Color;
+
+    use crate::model::{DiffFile, DiffHunk, DiffLine, FileStatus, LineOrigin};
+
+    /// One hunk: a context line, then the deletions, then the additions.
+    pub(crate) fn change_block_file(
+        context: &str,
+        deletions: &[&str],
+        additions: &[&str],
+    ) -> DiffFile {
+        let mut lines = vec![DiffLine {
+            origin: LineOrigin::Context,
+            content: context.to_string(),
+            old_lineno: Some(1),
+            new_lineno: Some(1),
+            highlighted_spans: None,
+        }];
+        lines.extend(deletions.iter().enumerate().map(|(i, content)| DiffLine {
+            origin: LineOrigin::Deletion,
+            content: content.to_string(),
+            old_lineno: Some(i as u32 + 2),
+            new_lineno: None,
+            highlighted_spans: None,
+        }));
+        lines.extend(additions.iter().enumerate().map(|(i, content)| DiffLine {
+            origin: LineOrigin::Addition,
+            content: content.to_string(),
+            old_lineno: None,
+            new_lineno: Some(i as u32 + 2),
+            highlighted_spans: None,
+        }));
+        let hunks = vec![DiffHunk {
+            header: "@@ -1,3 +1,3 @@".to_string(),
+            old_count: deletions.len() as u32 + 1,
+            new_count: additions.len() as u32 + 1,
+            lines,
+            old_start: 1,
+            new_start: 1,
+        }];
+        let content_hash = DiffFile::compute_content_hash(&hunks);
+        DiffFile {
+            old_path: Some(PathBuf::from("src/lib.rs")),
+            new_path: Some(PathBuf::from("src/lib.rs")),
+            status: FileStatus::Modified,
+            hunks,
+            is_binary: false,
+            is_too_large: false,
+            is_commit_message: false,
+            content_hash,
+        }
+    }
+
+    /// Every row's text, one per line, for assertion messages.
+    pub(crate) fn body_text(buffer: &Buffer) -> String {
+        (0..buffer.area.height)
+            .map(|y| row_text(buffer, y))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub(crate) fn row_text(buffer: &Buffer, y: u16) -> String {
+        (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect()
+    }
+
+    /// The row whose text contains `needle`.
+    pub(crate) fn row_containing(buffer: &Buffer, needle: &str) -> u16 {
+        (0..buffer.area.height)
+            .find(|&y| row_text(buffer, y).contains(needle))
+            .unwrap_or_else(|| panic!("no row contains {needle:?}:\n{}", body_text(buffer)))
+    }
+
+    /// The x of each cell in row `y` whose background is `bg`.
+    pub(crate) fn cells_with_bg(buffer: &Buffer, y: u16, bg: Color) -> Vec<u16> {
+        (0..buffer.area.width)
+            .filter(|&x| buffer[(x, y)].bg == bg)
+            .collect()
+    }
+
+    /// The text spelled by the cells of row `y` whose background is `bg`.
+    pub(crate) fn text_with_bg(buffer: &Buffer, y: u16, bg: Color) -> String {
+        cells_with_bg(buffer, y, bg)
+            .into_iter()
+            .map(|x| buffer[(x, y)].symbol())
+            .collect()
     }
 }

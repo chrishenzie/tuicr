@@ -106,7 +106,7 @@ src/
     ├── help_popup.rs    # Help overlay (? key)
     ├── summary_popup.rs # :summary view of pending local-draft comments
     ├── comment_panel.rs # Comment input dialog, confirm dialog
-    ├── word_diff.rs     # Word diff over line pairs: word_ranges() diffs a pair's tokens
+    ├── word_diff.rs     # Word diff over line pairs: word_ranges() diffs a pair's tokens; HunkWordRanges pairs a hunk's lines for the unified renderer
     └── styles.rs        # Color constants and style helper functions
 ```
 

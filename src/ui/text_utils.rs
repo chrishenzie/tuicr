@@ -254,6 +254,16 @@ pub(super) fn apply_search_highlight_spans(
 ) -> Vec<Span<'static>> {
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
     let ranges = search_match_ranges(&text, needle_lower);
+    apply_highlight_ranges_spans(spans, &ranges, highlight)
+}
+
+/// Patch `highlight` over each byte range of the text the spans spell out,
+/// splitting spans at the range edges. Ranges are ascending and disjoint.
+pub(super) fn apply_highlight_ranges_spans(
+    spans: Vec<Span<'static>>,
+    ranges: &[Range<usize>],
+    highlight: Style,
+) -> Vec<Span<'static>> {
     if ranges.is_empty() {
         return spans;
     }
@@ -261,7 +271,7 @@ pub(super) fn apply_search_highlight_spans(
         .into_iter()
         .map(|span| (span.style, span.content.into_owned()))
         .collect();
-    split_pairs_at_ranges(&pairs, &ranges, highlight)
+    split_pairs_at_ranges(&pairs, ranges, highlight)
         .into_iter()
         .map(|(style, text)| Span::styled(text, style))
         .collect()

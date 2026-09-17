@@ -412,6 +412,17 @@ impl App {
         self
     }
 
+    /// The whitespace mode the session's diff was opened with. Word diff
+    /// follows it.
+    pub(crate) fn diff_whitespace_mode(&self) -> DiffWhitespaceMode {
+        self.vcs_open_options.diff_whitespace_mode
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_diff_whitespace_mode(&mut self, mode: DiffWhitespaceMode) {
+        self.vcs_open_options.diff_whitespace_mode = mode;
+    }
+
     /// Shared constructor: all `App::new` paths converge here.
     ///
     /// `pub(crate)` so render-snapshot tests in `ui::app_layout` can drive

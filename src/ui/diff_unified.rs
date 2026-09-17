@@ -22,6 +22,8 @@ use crate::ui::diff_view::{
     scroll_comment_input_into_view, skip_comment_box, unified_line_bg_style,
 };
 use crate::ui::styles;
+use crate::ui::text_utils::apply_search_highlight_spans;
+use crate::ui::word_diff::{HunkWordRanges, apply_word_highlight};
 use crate::vcs::git::calculate_gap;
 
 pub(super) fn render_unified_diff(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -584,8 +586,10 @@ pub(super) fn render_unified_diff(frame: &mut Frame, app: &mut App, area: Rect) 
                     continue;
                 }
 
-                // Diff lines
-                for diff_line in &hunk.lines {
+                // Diff lines. Word ranges are paired per hunk, built on the
+                // first visible line so an off-screen hunk allocates nothing.
+                let mut hunk_word_ranges: Option<HunkWordRanges> = None;
+                for (line_in_hunk, diff_line) in hunk.lines.iter().enumerate() {
                     // Hot path: skip span/style allocation entirely for diff
                     // lines outside the viewport. Comment handling below still
                     // runs so `line_idx` stays exact and any comment box that
@@ -664,9 +668,24 @@ pub(super) fn render_unified_diff(frame: &mut Frame, app: &mut App, area: Rect) 
                             Span::styled(String::new(), eol_style)
                         });
 
+                        // The word highlight goes on after the end-of-line
+                        // marker reads the last span's style, so a marked last
+                        // token does not paint the row's tail, and before
+                        // search highlighting, which wins where they overlap.
+                        let word_ranges = hunk_word_ranges
+                            .get_or_insert_with(|| HunkWordRanges::new(hunk))
+                            .for_line(app, line_in_hunk);
+                        let content_spans = line_spans.split_off(content_start);
+                        line_spans.extend(apply_word_highlight(
+                            &app.theme,
+                            diff_line,
+                            word_ranges,
+                            content_spans,
+                        ));
+
                         if let Some(needle) = app.search_paint_at(line_idx) {
                             let content_spans = line_spans.split_off(content_start);
-                            line_spans.extend(crate::ui::text_utils::apply_search_highlight_spans(
+                            line_spans.extend(apply_search_highlight_spans(
                                 content_spans,
                                 needle,
                                 search_style,
@@ -1661,7 +1680,7 @@ mod remote_comments_snapshot_tests {
         .expect("build app")
     }
 
-    fn make_revision_app(diff_files: Vec<DiffFile>) -> App {
+    pub(super) fn make_revision_app(diff_files: Vec<DiffFile>) -> App {
         let vcs_info = VcsInfo {
             root_path: PathBuf::from("/tmp/tuicr"),
             head_commit: "headsha".to_string(),
@@ -1702,7 +1721,7 @@ mod remote_comments_snapshot_tests {
         terminal.backend().buffer().clone()
     }
 
-    fn draw_unified_diff(app: &mut App) -> Buffer {
+    pub(super) fn draw_unified_diff(app: &mut App) -> Buffer {
         let backend = TestBackend::new(100, 12);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -1722,7 +1741,7 @@ mod remote_comments_snapshot_tests {
             .join("\n")
     }
 
-    fn commit_message_file(message: &str) -> DiffFile {
+    pub(super) fn commit_message_file(message: &str) -> DiffFile {
         let lines: Vec<DiffLine> = message
             .lines()
             .enumerate()
@@ -2266,5 +2285,389 @@ mod remote_comments_snapshot_tests {
                 "expected │ at ({bar_x},{y}) between cap ({cap_y}) and box top ({box_top_y}), got {glyph:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod word_diff_render_tests {
+    //! Render tests for word diff in the unified view. Each draws into a
+    //! `TestBackend` and asserts which cells carry the word background, so
+    //! the assertions read as the marked text of a row.
+    use super::remote_comments_snapshot_tests::{
+        commit_message_file, draw_unified_diff, make_revision_app,
+    };
+    use crate::app::GapId;
+    use crate::model::{Comment, CommentType, DiffFile, DiffLine, LineOrigin, LineSide};
+    use crate::ui::word_diff::test_support::{body_text, row_containing, row_text, text_with_bg};
+    use crate::vcs::DiffWhitespaceMode;
+    use ratatui::buffer::Buffer;
+    use ratatui::style::{Color, Style};
+    use std::path::PathBuf;
+
+    /// One hunk: a context line, then the deletions, then the additions.
+    fn change_block_file(deletions: &[&str], additions: &[&str]) -> DiffFile {
+        crate::ui::word_diff::test_support::change_block_file("context", deletions, additions)
+    }
+
+    /// The text of each side's row that carries that side's word background.
+    fn marked(
+        buffer: &Buffer,
+        app: &crate::app::App,
+        deletion: &str,
+        addition: &str,
+    ) -> (String, String) {
+        let del_row = row_containing(buffer, deletion);
+        let add_row = row_containing(buffer, addition);
+        (
+            text_with_bg(buffer, del_row, app.theme.word_del_bg()),
+            text_with_bg(buffer, add_row, app.theme.word_add_bg()),
+        )
+    }
+
+    /// Whether any cell in the buffer carries `bg`.
+    fn any_cell_with_bg(buffer: &Buffer, bg: Color) -> bool {
+        (0..buffer.area.height).any(|y| !text_with_bg(buffer, y, bg).is_empty())
+    }
+
+    fn assert_nothing_marked(buffer: &Buffer, app: &crate::app::App) {
+        for bg in [
+            app.theme.word_del_bg(),
+            app.theme.word_add_bg(),
+            app.theme.syntax_word_del_bg(),
+            app.theme.syntax_word_add_bg(),
+        ] {
+            assert!(
+                !any_cell_with_bg(buffer, bg),
+                "unexpected word background {bg:?}:\n{}",
+                body_text(buffer)
+            );
+        }
+    }
+
+    #[test]
+    fn should_mark_the_changed_token_on_both_lines_of_a_pair() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["let x = foo;"],
+            &["let x = bar;"],
+        )]);
+        let buffer = draw_unified_diff(&mut app);
+
+        assert_eq!(
+            marked(&buffer, &app, "let x = foo;", "let x = bar;"),
+            ("foo".to_string(), "bar".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+        // The mark adds no characters: rows, gutter, and cursor are as before.
+        let del_row = row_containing(&buffer, "let x = foo;");
+        assert_eq!(
+            row_text(&buffer, del_row).trim_matches('│').trim_end(),
+            "    2 ▌ let x = foo;"
+        );
+        assert_eq!(
+            row_text(&buffer, del_row + 1).trim_matches('│').trim_end(),
+            "    2 ▌ let x = bar;"
+        );
+        assert!(
+            row_text(&buffer, 1).starts_with("│▶ ═══ src/lib.rs"),
+            "{}",
+            body_text(&buffer)
+        );
+    }
+
+    #[test]
+    fn should_mark_only_the_renamed_identifier() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["fn compute_total(items: &[Item]) -> u32 {"],
+            &["fn compute_sum(items: &[Item]) -> u32 {"],
+        )]);
+        let buffer = draw_unified_diff(&mut app);
+
+        assert_eq!(
+            marked(
+                &buffer,
+                &app,
+                "fn compute_total(items",
+                "fn compute_sum(items"
+            ),
+            ("compute_total".to_string(), "compute_sum".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+    }
+
+    #[test]
+    fn should_pair_an_uneven_block_by_position_and_leave_the_tail_plain() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["a = 1;", "b = 2;"],
+            &["a = 10;", "b = 20;", "c = 30;"],
+        )]);
+        let buffer = draw_unified_diff(&mut app);
+
+        assert_eq!(
+            marked(&buffer, &app, "a = 1;", "a = 10;"),
+            ("1".to_string(), "10".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            marked(&buffer, &app, "b = 2;", "b = 20;"),
+            ("2".to_string(), "20".to_string())
+        );
+        let tail_row = row_containing(&buffer, "c = 30;");
+        assert_eq!(text_with_bg(&buffer, tail_row, app.theme.word_add_bg()), "");
+    }
+
+    #[test]
+    fn should_leave_a_dissimilar_pair_plain() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["let x = foo;"],
+            &["return None;"],
+        )]);
+        let buffer = draw_unified_diff(&mut app);
+
+        assert_nothing_marked(&buffer, &app);
+    }
+
+    #[test]
+    fn should_leave_a_pure_addition_and_a_pure_deletion_plain() {
+        let mut app = make_revision_app(vec![change_block_file(&[], &["let x = bar;"])]);
+        assert_nothing_marked(&draw_unified_diff(&mut app), &app);
+
+        let mut app = make_revision_app(vec![change_block_file(&["let x = foo;"], &[])]);
+        assert_nothing_marked(&draw_unified_diff(&mut app), &app);
+    }
+
+    #[test]
+    fn should_keep_syntax_foreground_under_the_mark() {
+        let mut file = change_block_file(&["let x = foo;"], &["let x = bar;"]);
+        let theme = crate::theme::Theme::dark();
+        let syntax = |bg: Color, tail: &str| {
+            Some(vec![
+                (
+                    Style::default().fg(Color::Yellow).bg(bg),
+                    "let ".to_string(),
+                ),
+                (Style::default().fg(Color::Blue).bg(bg), tail.to_string()),
+            ])
+        };
+        file.hunks[0].lines[1].highlighted_spans = syntax(theme.syntax_del_bg, "x = foo;");
+        file.hunks[0].lines[2].highlighted_spans = syntax(theme.syntax_add_bg, "x = bar;");
+        let mut app = make_revision_app(vec![file]);
+        let buffer = draw_unified_diff(&mut app);
+
+        let del_row = row_containing(&buffer, "let x = foo;");
+        let add_row = row_containing(&buffer, "let x = bar;");
+        assert_eq!(
+            text_with_bg(&buffer, del_row, theme.syntax_word_del_bg()),
+            "foo",
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            text_with_bg(&buffer, add_row, theme.syntax_word_add_bg()),
+            "bar"
+        );
+        let marked_fg: Vec<Color> = (0..buffer.area.width)
+            .map(|x| &buffer[(x, add_row)])
+            .filter(|cell| cell.bg == theme.syntax_word_add_bg())
+            .map(|cell| cell.fg)
+            .collect();
+        assert_eq!(marked_fg, vec![Color::Blue; 3]);
+    }
+
+    #[test]
+    fn should_keep_the_mark_on_both_rows_of_a_wrapped_line() {
+        // Wrapping keeps a token whole when it fits, so the changed token is
+        // wider than a row and must split. The unchanged head keeps the pair
+        // similar despite the size of the change.
+        let head = "a".repeat(140);
+        let long_token = |prefix: &str| format!("{prefix}{}", "b".repeat(120));
+        let deletion = format!("{head} {}", long_token("old_"));
+        let addition = format!("{head} {}", long_token("new_"));
+        let mut app = make_revision_app(vec![change_block_file(&[&deletion], &[&addition])]);
+        app.set_diff_wrap(true);
+        app.rebuild_annotations();
+        let buffer = draw_unified_diff(&mut app);
+
+        let del_row = row_containing(&buffer, " old_");
+        let add_row = row_containing(&buffer, " new_");
+        assert_eq!(
+            add_row,
+            del_row + 3,
+            "each line still takes three rows:\n{}",
+            body_text(&buffer)
+        );
+        let continued = text_with_bg(&buffer, del_row + 1, app.theme.word_del_bg());
+        assert!(
+            !continued.is_empty() && continued.chars().all(|c| c == 'b'),
+            "the token continues on the next row, got {continued:?}:\n{}",
+            body_text(&buffer)
+        );
+        let marked_rows = |first: u16, bg: Color| {
+            text_with_bg(&buffer, first, bg) + &text_with_bg(&buffer, first + 1, bg)
+        };
+        assert_eq!(
+            marked_rows(del_row, app.theme.word_del_bg()),
+            long_token("old_"),
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            marked_rows(add_row, app.theme.word_add_bg()),
+            long_token("new_")
+        );
+    }
+
+    #[test]
+    fn should_show_a_search_match_inside_a_changed_token_in_the_search_background() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["let x = foobar;"],
+            &["let x = bazbar;"],
+        )]);
+        app.search_buffer = "bar".to_string();
+        assert!(app.search_in_diff_from_cursor());
+        let buffer = draw_unified_diff(&mut app);
+
+        // The search moved the cursor to the deletion row, whose cursor
+        // highlight covers everything but the match; the addition row shows
+        // both layers.
+        let add_row = row_containing(&buffer, "let x = bazbar;");
+        assert_eq!(
+            text_with_bg(&buffer, add_row, app.theme.search_match_bg),
+            "bar",
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            text_with_bg(&buffer, add_row, app.theme.word_add_bg()),
+            "baz"
+        );
+    }
+
+    #[test]
+    fn should_mark_a_changed_indent() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["    let x = foo;"],
+            &["        let x = foo;"],
+        )]);
+        let buffer = draw_unified_diff(&mut app);
+
+        assert_eq!(
+            marked(&buffer, &app, "    let x = foo;", "        let x = foo;"),
+            ("    ".to_string(), "        ".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+    }
+
+    #[test]
+    fn should_leave_a_changed_indent_plain_when_the_session_ignores_whitespace() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["    let x = foo;"],
+            &["        let x = foo;"],
+        )]);
+        app.set_diff_whitespace_mode(DiffWhitespaceMode::IgnoreAll);
+        let buffer = draw_unified_diff(&mut app);
+
+        assert_nothing_marked(&buffer, &app);
+    }
+
+    #[test]
+    fn should_mark_while_a_comment_is_being_written() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["let x = foo;"],
+            &["let x = bar;"],
+        )]);
+        app.enter_comment_mode(false, Some((2, LineSide::New)));
+        let buffer = draw_unified_diff(&mut app);
+
+        assert_eq!(
+            marked(&buffer, &app, "let x = foo;", "let x = bar;"),
+            ("foo".to_string(), "bar".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+    }
+
+    #[test]
+    fn should_never_mark_commit_message_lines() {
+        let mut app = make_revision_app(vec![commit_message_file("let x = foo;\nlet x = bar;")]);
+        let buffer = draw_unified_diff(&mut app);
+
+        assert_nothing_marked(&buffer, &app);
+    }
+
+    #[test]
+    fn should_never_mark_expanded_context() {
+        let mut file = change_block_file(&["let x = foo;"], &["let x = bar;"]);
+        file.hunks[0].old_start = 5;
+        file.hunks[0].new_start = 5;
+        let mut app = make_revision_app(vec![file]);
+        app.expanded_top.insert(
+            GapId {
+                file_idx: 0,
+                hunk_idx: 0,
+            },
+            vec![DiffLine {
+                origin: LineOrigin::Context,
+                content: "let x = foo;".to_string(),
+                old_lineno: Some(1),
+                new_lineno: Some(1),
+                highlighted_spans: None,
+            }],
+        );
+        app.rebuild_annotations();
+        let buffer = draw_unified_diff(&mut app);
+
+        let expanded_row = row_containing(&buffer, "let x = foo;");
+        let del_row = expanded_row
+            + (1..)
+                .find(|&dy| row_text(&buffer, expanded_row + dy).contains("let x = foo;"))
+                .expect("deletion row below the expanded line");
+        assert_eq!(
+            text_with_bg(&buffer, expanded_row, app.theme.word_del_bg()),
+            "",
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            text_with_bg(&buffer, del_row, app.theme.word_del_bg()),
+            "foo"
+        );
+    }
+
+    #[test]
+    fn should_keep_a_line_comment_under_its_marked_line() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["let x = foo;"],
+            &["let x = bar;"],
+        )]);
+        app.session
+            .get_file_mut(&PathBuf::from("src/lib.rs"))
+            .expect("file registered in session")
+            .add_line_comment(
+                2,
+                Comment::new(
+                    "why bar?".to_string(),
+                    CommentType::from_id("note"),
+                    Some(LineSide::New),
+                ),
+            );
+        app.rebuild_annotations();
+        let buffer = draw_unified_diff(&mut app);
+
+        let add_row = row_containing(&buffer, "let x = bar;");
+        assert_eq!(
+            marked(&buffer, &app, "let x = foo;", "let x = bar;"),
+            ("foo".to_string(), "bar".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+        assert!(
+            (1..=3).any(|dy| row_text(&buffer, add_row + dy).contains("why bar?")),
+            "comment box follows the addition row:\n{}",
+            body_text(&buffer)
+        );
     }
 }
