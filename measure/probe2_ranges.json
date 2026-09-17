@@ -1,0 +1,820 @@
+[
+ {
+  "ctx": " # probe2 case 01: insert only inside",
+  "del": [
+   [
+    "-foo(a, b)",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+foo(a, b, c)",
+    [
+     [
+      9,
+      12
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 02: delete only inside",
+  "del": [
+   [
+    "-bar(x, y, z)",
+    [
+     [
+      9,
+      12
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+bar(x, y)",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 03: 1:2 split",
+  "del": [
+   [
+    "-let x = compute(a, b);",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+let x = compute(a,",
+    []
+   ],
+   [
+    "+                b);",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 04: 2:1 join",
+  "del": [
+   [
+    "-let y = combine(p,",
+    []
+   ],
+   [
+    "-                q);",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+let y = combine(p, q);",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 05: gap 1 wide char 3 bytes",
+  "del": [
+   [
+    "-x+値+y",
+    [
+     [
+      1,
+      6
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+z-値-w",
+    [
+     [
+      1,
+      6
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 06: gap 2 wide chars 6 bytes",
+  "del": [
+   [
+    "-x+値段+y",
+    [
+     [
+      1,
+      7
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+z-値段-w",
+    [
+     [
+      1,
+      7
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 07: gap 3 wide chars",
+  "del": [
+   [
+    "-x+日本語+y",
+    [
+     [
+      1,
+      3
+     ],
+     [
+      6,
+      8
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+z-日本語-w",
+    [
+     [
+      1,
+      3
+     ],
+     [
+      6,
+      8
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 08: gap 1 emoji 2 utf16 units",
+  "del": [
+   [
+    "-x+👋+y",
+    [
+     [
+      1,
+      6
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+z-👋-w",
+    [
+     [
+      1,
+      6
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 09: gap 2 emoji 4 utf16 units",
+  "del": [
+   [
+    "-x+👋👋+y",
+    [
+     [
+      1,
+      7
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+z-👋👋-w",
+    [
+     [
+      1,
+      7
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 10: gap 1 tab",
+  "del": [
+   [
+    "-x\ty",
+    [
+     [
+      1,
+      4
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+a\tb",
+    [
+     [
+      1,
+      4
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 11: gap tab and space",
+  "del": [
+   [
+    "-x\t y",
+    [
+     [
+      1,
+      5
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+a\t b",
+    [
+     [
+      1,
+      5
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 12: gap punct run 2",
+  "del": [
+   [
+    "-foo->bar",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz->qux",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 13: gap 3 punct space",
+  "del": [
+   [
+    "-f(a); g(b)",
+    [
+     [
+      3,
+      4
+     ],
+     [
+      9,
+      10
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+f(c); g(d)",
+    [
+     [
+      3,
+      4
+     ],
+     [
+      9,
+      10
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 14: swapped words",
+  "del": [
+   [
+    "-abcd efgh",
+    [
+     [
+      1,
+      6
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+efgh abcd",
+    [
+     [
+      5,
+      10
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 15: moved word",
+  "del": [
+   [
+    "-one two three four",
+    [
+     [
+      1,
+      5
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+two three four one",
+    [
+     [
+      15,
+      19
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 16: gap 2 between delete-only and insert-only",
+  "del": [
+   [
+    "-a x, b",
+    [
+     [
+      3,
+      5
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+a , y b",
+    [
+     [
+      3,
+      6
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 17: gap 2 after insert-only",
+  "del": [
+   [
+    "-a, b",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+x a, b",
+    [
+     [
+      1,
+      3
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 18: gap 2 chars uppercase",
+  "del": [
+   [
+    "-fooABbar",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+fooABbaz",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 19: 4:4 second unrelated",
+  "del": [
+   [
+    "-k1 = old",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ],
+   [
+    "-old junk here",
+    [
+     [
+      1,
+      14
+     ]
+    ]
+   ],
+   [
+    "-k3 = old",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ],
+   [
+    "-k4 = old",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+k1 = new",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ],
+   [
+    "+unrelated new stuff",
+    [
+     [
+      1,
+      20
+     ]
+    ]
+   ],
+   [
+    "+k3 = new",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ],
+   [
+    "+k4 = new",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 20: 6:6 all changed",
+  "del": [
+   [
+    "-item_0 = old_0",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "-item_1 = old_1",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "-item_2 = old_2",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "-item_3 = old_3",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "-item_4 = old_4",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "-item_5 = old_5",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+item_0 = new_0",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "+item_1 = new_1",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "+item_2 = new_2",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "+item_3 = new_3",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "+item_4 = new_4",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ],
+   [
+    "+item_5 = new_5",
+    [
+     [
+      10,
+      15
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 21: 3:3 reversed",
+  "del": [
+   [
+    "-alpha one",
+    [
+     [
+      1,
+      10
+     ]
+    ]
+   ],
+   [
+    "-beta two",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ],
+   [
+    "-gamma three",
+    [
+     [
+      1,
+      12
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+gamma four",
+    [
+     [
+      1,
+      11
+     ]
+    ]
+   ],
+   [
+    "+beta five",
+    [
+     [
+      6,
+      10
+     ]
+    ]
+   ],
+   [
+    "+alpha six",
+    [
+     [
+      1,
+      10
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 22: 4:5 uneven similar",
+  "del": [
+   [
+    "-k1 = old",
+    []
+   ],
+   [
+    "-k2 = old",
+    []
+   ],
+   [
+    "-k3 = old",
+    []
+   ],
+   [
+    "-k4 = old",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+k1 = new",
+    []
+   ],
+   [
+    "+k2 = new",
+    []
+   ],
+   [
+    "+inserted",
+    []
+   ],
+   [
+    "+k3 = new",
+    []
+   ],
+   [
+    "+k4 = new",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 23: 5:4 uneven similar",
+  "del": [
+   [
+    "-k1 = old",
+    []
+   ],
+   [
+    "-k2 = old",
+    []
+   ],
+   [
+    "-removed",
+    []
+   ],
+   [
+    "-k3 = old",
+    []
+   ],
+   [
+    "-k4 = old",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+k1 = new",
+    []
+   ],
+   [
+    "+k2 = new",
+    []
+   ],
+   [
+    "+k3 = new",
+    []
+   ],
+   [
+    "+k4 = new",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # probe2 case 24: 2:2 one side empty line",
+  "del": [
+   [
+    "-keep = 1",
+    [
+     [
+      8,
+      9
+     ]
+    ]
+   ],
+   [
+    "-",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+keep = 2",
+    [
+     [
+      8,
+      9
+     ]
+    ]
+   ],
+   [
+    "+new line",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ]
+ }
+]

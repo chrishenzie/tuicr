@@ -1,0 +1,1690 @@
+[
+ {
+  "ctx": " # case 01: gap 1 char punct",
+  "del": [
+   [
+    "-foo.bar",
+    [
+     [
+      1,
+      8
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz.qux",
+    [
+     [
+      1,
+      8
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 02: gap 1 char space",
+  "del": [
+   [
+    "-foo bar",
+    [
+     [
+      1,
+      8
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz qux",
+    [
+     [
+      1,
+      8
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 03: gap 2 chars 2 tokens comma space",
+  "del": [
+   [
+    "-foo, bar",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz, qux",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 04: gap 2 chars 2 tokens parens",
+  "del": [
+   [
+    "-foo()bar",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz()qux",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 05: gap 2 chars 1 token",
+  "del": [
+   [
+    "-x+ab+y",
+    [
+     [
+      1,
+      7
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+z-ab-w",
+    [
+     [
+      1,
+      7
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 06: gap 2 spaces",
+  "del": [
+   [
+    "-foo  bar",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz  qux",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 07: gap 3 chars 1 token",
+  "del": [
+   [
+    "-x+abc+y",
+    [
+     [
+      1,
+      3
+     ],
+     [
+      6,
+      8
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+z-abc-w",
+    [
+     [
+      1,
+      3
+     ],
+     [
+      6,
+      8
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 08: gap 3 chars 3 tokens",
+  "del": [
+   [
+    "-x + y",
+    [
+     [
+      1,
+      2
+     ],
+     [
+      5,
+      6
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+a + b",
+    [
+     [
+      1,
+      2
+     ],
+     [
+      5,
+      6
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 09: gap 3 spaces",
+  "del": [
+   [
+    "-foo   bar",
+    [
+     [
+      1,
+      4
+     ],
+     [
+      7,
+      10
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz   qux",
+    [
+     [
+      1,
+      4
+     ],
+     [
+      7,
+      10
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 10: gap 4 chars 1 token",
+  "del": [
+   [
+    "-x+abcd+y",
+    [
+     [
+      1,
+      3
+     ],
+     [
+      7,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+z-abcd-w",
+    [
+     [
+      1,
+      3
+     ],
+     [
+      7,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 11: gap 4 chars word",
+  "del": [
+   [
+    "-foo to bar",
+    [
+     [
+      1,
+      4
+     ],
+     [
+      8,
+      11
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz to qux",
+    [
+     [
+      1,
+      4
+     ],
+     [
+      8,
+      11
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 12: gap 5 chars",
+  "del": [
+   [
+    "-foo and bar",
+    [
+     [
+      1,
+      4
+     ],
+     [
+      9,
+      12
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+baz and qux",
+    [
+     [
+      1,
+      4
+     ],
+     [
+      9,
+      12
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 13: gap 4 chars large edits",
+  "del": [
+   [
+    "-alpha_beta_gamma_delta to epsilon_zeta_eta_theta",
+    [
+     [
+      1,
+      23
+     ],
+     [
+      27,
+      49
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+one_two_three_four to five_six_seven_eight",
+    [
+     [
+      1,
+      19
+     ],
+     [
+      23,
+      43
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 14: gap 8 chars large edits",
+  "del": [
+   [
+    "-alpha_beta_gamma_delta because epsilon_zeta_eta_theta",
+    [
+     [
+      1,
+      23
+     ],
+     [
+      32,
+      54
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+one_two_three_four because five_six_seven_eight",
+    [
+     [
+      1,
+      19
+     ],
+     [
+      28,
+      48
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 15: two gaps 2 and 3 chars",
+  "del": [
+   [
+    "-foo, bar + baz",
+    [
+     [
+      1,
+      9
+     ],
+     [
+      12,
+      15
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+qux, quux + corge",
+    [
+     [
+      1,
+      10
+     ],
+     [
+      13,
+      18
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 16: three changes gaps of 1",
+  "del": [
+   [
+    "-a.b.c.d",
+    [
+     [
+      1,
+      8
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+w.x.y.z",
+    [
+     [
+      1,
+      8
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 17: suffix change in identifier",
+  "del": [
+   [
+    "-foobar",
+    [
+     [
+      1,
+      7
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+foobaz",
+    [
+     [
+      1,
+      7
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 18: plural suffix",
+  "del": [
+   [
+    "-getValue()",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+getValues()",
+    [
+     [
+      1,
+      10
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 19: digit in identifier",
+  "del": [
+   [
+    "-x1 = y",
+    [
+     [
+      1,
+      3
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+x2 = y",
+    [
+     [
+      1,
+      3
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 20: extension",
+  "del": [
+   [
+    "-README.md",
+    [
+     [
+      8,
+      10
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+README.rst",
+    [
+     [
+      8,
+      11
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 21: punct run arrow",
+  "del": [
+   [
+    "-a->b",
+    [
+     [
+      2,
+      3
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+a=>b",
+    [
+     [
+      2,
+      3
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 22: punct run compare",
+  "del": [
+   [
+    "-if a != b {",
+    [
+     [
+      6,
+      7
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+if a == b {",
+    [
+     [
+      6,
+      7
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 23: punct run path sep",
+  "del": [
+   [
+    "-foo::bar",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+foo::baz",
+    [
+     [
+      6,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 24: snake to camel",
+  "del": [
+   [
+    "-compute_total(items)",
+    [
+     [
+      1,
+      14
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+computeTotal(items)",
+    [
+     [
+      1,
+      13
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 25: hyphen word",
+  "del": [
+   [
+    "-foo-bar-baz",
+    [
+     [
+      5,
+      8
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+foo-qux-baz",
+    [
+     [
+      5,
+      8
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 26: number underscore",
+  "del": [
+   [
+    "-let n = 5000;",
+    [
+     [
+      9,
+      13
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+let n = 5_000;",
+    [
+     [
+      9,
+      14
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 27: number decimal",
+  "del": [
+   [
+    "-timeout = 1.5",
+    [
+     [
+      11,
+      12
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+timeout = 2.5",
+    [
+     [
+      11,
+      12
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 28: string content",
+  "del": [
+   [
+    "-msg = \"hello world\"",
+    [
+     [
+      14,
+      19
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+msg = \"hello there\"",
+    [
+     [
+      14,
+      19
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 29: adjacent changes",
+  "del": [
+   [
+    "-let value = foo(x);",
+    [
+     [
+      13,
+      19
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+let value = bar[x];",
+    [
+     [
+      13,
+      19
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 30: insert only inside",
+  "del": [
+   [
+    "-foo(a, b)",
+    []
+   ],
+   [
+    "-# case 31: delete only inside",
+    []
+   ]
+  ],
+  "add": []
+ },
+ {
+  "ctx": " foo(a, b, c)",
+  "del": [],
+  "add": [
+   [
+    "+# case 31: delete only inside",
+    []
+   ],
+   [
+    "+foo(a, b)",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 32: change at start",
+  "del": [
+   [
+    "-old_name = 1",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+new_name = 1",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 33: change at end",
+  "del": [
+   [
+    "-x = compute(a, b)",
+    [
+     [
+      16,
+      17
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+x = compute(a, c)",
+    [
+     [
+      16,
+      17
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 34: indent only",
+  "del": [
+   [
+    "-  foo();",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+    foo();",
+    [
+     [
+      3,
+      5
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 35: trailing space only",
+  "del": [
+   [
+    "-foo();",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+foo();  ",
+    [
+     [
+      7,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 36: interior spaces only",
+  "del": [
+   [
+    "-x = 1;",
+    [
+     [
+      3,
+      4
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+x  =  1;",
+    [
+     [
+      3,
+      6
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 37: indent and word",
+  "del": [
+   [
+    "-  let x = foo;",
+    [
+     [
+      11,
+      14
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+    let x = bar;",
+    [
+     [
+      3,
+      5
+     ],
+     [
+      13,
+      16
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 38: tab indent",
+  "del": [
+   [
+    "-\tfoo()",
+    [
+     [
+      2,
+      5
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+\tbar()",
+    [
+     [
+      2,
+      5
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 39: unicode word",
+  "del": [
+   [
+    "-naïve café",
+    [
+     [
+      7,
+      11
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+naïve thé",
+    [
+     [
+      7,
+      10
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 40: cjk suffix",
+  "del": [
+   [
+    "-日本語 = 値",
+    [
+     [
+      7,
+      8
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+日本語 = 値段",
+    [
+     [
+      7,
+      9
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 41: emoji",
+  "del": [
+   [
+    "-wave 👋 hi",
+    [
+     [
+      6,
+      7
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+wave 🙂 hi",
+    [
+     [
+      6,
+      7
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 42: combining mark",
+  "del": [
+   [
+    "-café + 1",
+    [
+     [
+      9,
+      10
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+café + 2",
+    [
+     [
+      9,
+      10
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 43: long line one change",
+  "del": [
+   [
+    "-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = compute_value(bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, old)",
+    [
+     [
+      140,
+      143
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = compute_value(bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, new)",
+    [
+     [
+      140,
+      143
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 44: share 0.25",
+  "del": [
+   [
+    "-foo bar baz qux",
+    [
+     [
+      13,
+      16
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+foo bar baz zzz",
+    [
+     [
+      13,
+      16
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 45: share 0.50",
+  "del": [
+   [
+    "-foo bar baz qux",
+    [
+     [
+      5,
+      8
+     ],
+     [
+      13,
+      16
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+foo aaa baz bbb",
+    [
+     [
+      5,
+      8
+     ],
+     [
+      13,
+      16
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 46: share 0.56",
+  "del": [
+   [
+    "-fn foo(a: u32) -> u32 {",
+    [
+     [
+      4,
+      14
+     ],
+     [
+      19,
+      22
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+fn bar(b: i64) -> i64 {",
+    [
+     [
+      4,
+      14
+     ],
+     [
+      19,
+      22
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 47: share 0.68",
+  "del": [
+   [
+    "-foo bar baz",
+    [
+     [
+      1,
+      4
+     ],
+     [
+      9,
+      12
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+qux bar quux",
+    [
+     [
+      1,
+      4
+     ],
+     [
+      9,
+      13
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 48: share 0.80",
+  "del": [
+   [
+    "-abc def ghi jkl",
+    [
+     [
+      5,
+      16
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+abc mno pqr stu vwx",
+    [
+     [
+      5,
+      20
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 49: share 0.90",
+  "del": [
+   [
+    "-let x = foo;",
+    [
+     [
+      1,
+      13
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+return bar(baz)",
+    [
+     [
+      1,
+      16
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 50: nothing in common",
+  "del": [
+   [
+    "-completely different line here",
+    [
+     [
+      1,
+      31
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+nothing shared at all ok",
+    [
+     [
+      1,
+      25
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 51: only punctuation in common",
+  "del": [
+   [
+    "-alpha(beta)",
+    [
+     [
+      1,
+      11
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+gamma(delta)",
+    [
+     [
+      1,
+      12
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 52: rewrapped prose",
+  "del": [
+   [
+    "-The quick brown fox jumps over the lazy dog and keeps running.",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+The quick brown fox jumps over the lazy dog, and it keeps on running far away.",
+    [
+     [
+      44,
+      45
+     ],
+     [
+      50,
+      53
+     ],
+     [
+      59,
+      62
+     ],
+     [
+      69,
+      78
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 53: empty to text",
+  "del": [
+   [
+    "-",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+added text",
+    [
+     [
+      1,
+      11
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 54: whitespace to text",
+  "del": [
+   [
+    "-   ",
+    [
+     [
+      1,
+      4
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+added text",
+    [
+     [
+      1,
+      11
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 55: 2:2 positional",
+  "del": [
+   [
+    "-first old line",
+    [
+     [
+      7,
+      10
+     ]
+    ]
+   ],
+   [
+    "-second old line",
+    [
+     [
+      8,
+      11
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+first new line",
+    [
+     [
+      7,
+      10
+     ]
+    ]
+   ],
+   [
+    "+second new line",
+    [
+     [
+      8,
+      11
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 56: 2:2 swapped order",
+  "del": [
+   [
+    "-alpha line here",
+    [
+     [
+      1,
+      6
+     ],
+     [
+      12,
+      16
+     ]
+    ]
+   ],
+   [
+    "-beta line here",
+    [
+     [
+      1,
+      5
+     ],
+     [
+      11,
+      15
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+beta line there",
+    [
+     [
+      1,
+      5
+     ],
+     [
+      11,
+      16
+     ]
+    ]
+   ],
+   [
+    "+alpha line there",
+    [
+     [
+      1,
+      6
+     ],
+     [
+      12,
+      17
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 57: 2:3 middle inserted",
+  "del": [
+   [
+    "-first old line",
+    []
+   ],
+   [
+    "-second old line",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+first new line",
+    []
+   ],
+   [
+    "+brand new middle",
+    []
+   ],
+   [
+    "+second new line",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 58: 3:2 middle removed",
+  "del": [
+   [
+    "-first old line",
+    []
+   ],
+   [
+    "-old middle line",
+    []
+   ],
+   [
+    "-second old line",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+first new line",
+    []
+   ],
+   [
+    "+second new line",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 59: 1:2 split",
+  "del": [
+   [
+    "-let x = compute(a, b);",
+    []
+   ],
+   [
+    "-# case 60: 2:1 join",
+    []
+   ]
+  ],
+  "add": []
+ },
+ {
+  "ctx": "                 b);",
+  "del": [],
+  "add": [
+   [
+    "+# case 60: 2:1 join",
+    []
+   ],
+   [
+    "+let x = compute(a, b);",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 61: 1:3 one similar last",
+  "del": [
+   [
+    "-let total = sum(items);",
+    []
+   ]
+  ],
+  "add": [
+   [
+    "+// comment one",
+    []
+   ],
+   [
+    "+// comment two",
+    []
+   ],
+   [
+    "+let total = sum(entries);",
+    []
+   ]
+  ]
+ },
+ {
+  "ctx": " # case 62: 3:3 one dissimilar middle",
+  "del": [
+   [
+    "-keep_a = 1",
+    [
+     [
+      10,
+      11
+     ]
+    ]
+   ],
+   [
+    "-old junk",
+    [
+     [
+      1,
+      9
+     ]
+    ]
+   ],
+   [
+    "-keep_c = 3",
+    [
+     [
+      10,
+      11
+     ]
+    ]
+   ]
+  ],
+  "add": [
+   [
+    "+keep_a = 2",
+    [
+     [
+      10,
+      11
+     ]
+    ]
+   ],
+   [
+    "+unrelated stuff entirely",
+    [
+     [
+      1,
+      25
+     ]
+    ]
+   ],
+   [
+    "+keep_c = 4",
+    [
+     [
+      10,
+      11
+     ]
+    ]
+   ]
+  ]
+ }
+]
