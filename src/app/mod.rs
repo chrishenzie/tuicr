@@ -1122,6 +1122,9 @@ pub struct App {
     pub focused_panel: FocusedPanel,
     pub diff_view_mode: DiffViewMode,
     pub relative_line_numbers: bool,
+    /// Highlight the changed tokens inside each line pair. Most load paths
+    /// replace `diff_state`; a flag there would revert on a reload.
+    pub word_diff: bool,
 
     pub file_list_state: FileListState,
     pub comment_navigator_state: CommentNavigatorState,

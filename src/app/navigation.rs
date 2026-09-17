@@ -274,6 +274,16 @@ impl App {
         self.set_message(format!("Diff wrapping: {status}"));
     }
 
+    pub fn toggle_word_diff(&mut self) {
+        self.set_word_diff(!self.word_diff);
+    }
+
+    pub fn set_word_diff(&mut self, enabled: bool) {
+        self.word_diff = enabled;
+        let status = if enabled { "on" } else { "off" };
+        self.set_message(format!("Word diff: {status}"));
+    }
+
     /// Adjusts scroll_offset so the cursor stays within the visible viewport,
     /// respecting the configured scroll margin (minimum lines from edge).
     pub(in crate::app) fn ensure_cursor_visible(&mut self) {

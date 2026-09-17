@@ -672,16 +672,21 @@ pub(super) fn render_unified_diff(frame: &mut Frame, app: &mut App, area: Rect) 
                         // marker reads the last span's style, so a marked last
                         // token does not paint the row's tail, and before
                         // search highlighting, which wins where they overlap.
-                        let word_ranges = hunk_word_ranges
-                            .get_or_insert_with(|| HunkWordRanges::new(hunk))
-                            .for_line(app, line_in_hunk);
-                        let content_spans = line_spans.split_off(content_start);
-                        line_spans.extend(apply_word_highlight(
-                            &app.theme,
-                            diff_line,
-                            word_ranges,
-                            content_spans,
-                        ));
+                        // Pairing a hunk allocates per line. The flag is
+                        // checked here as well as in `line_pair_ranges` so
+                        // that a hunk is never paired with word diff off.
+                        if app.word_diff {
+                            let word_ranges = hunk_word_ranges
+                                .get_or_insert_with(|| HunkWordRanges::new(hunk))
+                                .for_line(app, line_in_hunk);
+                            let content_spans = line_spans.split_off(content_start);
+                            line_spans.extend(apply_word_highlight(
+                                &app.theme,
+                                diff_line,
+                                word_ranges,
+                                content_spans,
+                            ));
+                        }
 
                         if let Some(needle) = app.search_paint_at(line_idx) {
                             let content_spans = line_spans.split_off(content_start);
@@ -2427,6 +2432,26 @@ mod word_diff_render_tests {
         let buffer = draw_unified_diff(&mut app);
 
         assert_nothing_marked(&buffer, &app);
+    }
+
+    #[test]
+    fn should_leave_every_pair_plain_when_word_diff_is_off() {
+        let mut app = make_revision_app(vec![change_block_file(
+            &["let x = foo;"],
+            &["let x = bar;"],
+        )]);
+        app.set_word_diff(false);
+        assert_nothing_marked(&draw_unified_diff(&mut app), &app);
+
+        // Turning it back on takes effect on the next frame.
+        app.set_word_diff(true);
+        let buffer = draw_unified_diff(&mut app);
+        assert_eq!(
+            marked(&buffer, &app, "let x = foo;", "let x = bar;"),
+            ("foo".to_string(), "bar".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
     }
 
     #[test]

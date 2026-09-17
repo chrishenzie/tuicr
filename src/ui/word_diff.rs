@@ -53,13 +53,16 @@ pub(crate) fn apply_word_highlight(
 /// an added argument, and above it unrelated lines become common.
 const MAX_CHANGED_SHARE: f64 = 0.6;
 
-/// Word ranges for a line pair under the session's settings; empty when the
-/// pair is dissimilar. The renderers compute a pair's ranges here, the one
-/// place the session's settings are applied.
+/// Word ranges for a line pair under the session's settings; empty when word
+/// diff is off or the pair is dissimilar. The renderers compute a pair's
+/// ranges here, the one place the session's settings are applied.
 ///
 /// A syntax-highlighted line is displayed as its spans' text, so that text is
 /// diffed and the ranges index it; a plain line is displayed as its content.
 pub(crate) fn line_pair_ranges(app: &App, deletion: &DiffLine, addition: &DiffLine) -> WordRanges {
+    if !app.word_diff {
+        return WordRanges::default();
+    }
     word_ranges(
         &displayed_text(deletion),
         &displayed_text(addition),

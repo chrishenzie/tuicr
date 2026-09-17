@@ -128,6 +128,9 @@ pub struct AppConfig {
     pub initial_commit_selection: Option<String>,
     pub ignore_whitespace: Option<bool>,
     pub wrap: Option<bool>,
+    /// Highlight the changed tokens inside each line pair of a change
+    /// block. Defaults to true; toggle with `:set worddiff!`.
+    pub word_diff: Option<bool>,
     pub relative_line_numbers: Option<bool>,
     pub export_legend: Option<bool>,
     pub cursor_line: Option<bool>,
@@ -197,6 +200,7 @@ const KNOWN_KEYS: &[&str] = &[
     "initial_commit_selection",
     "ignore_whitespace",
     "wrap",
+    "word_diff",
     "relative_line_numbers",
     "export_legend",
     "cursor_line",
@@ -438,6 +442,7 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
         ),
         ignore_whitespace: read_bool(table, "ignore_whitespace", &mut warnings),
         wrap: read_bool(table, "wrap", &mut warnings),
+        word_diff: read_bool(table, "word_diff", &mut warnings),
         export_legend: read_bool(table, "export_legend", &mut warnings),
         cursor_line: read_bool(table, "cursor_line", &mut warnings),
         search_highlight: read_bool(table, "search_highlight", &mut warnings),
@@ -1215,6 +1220,46 @@ mod tests {
         assert_eq!(
             outcome.warnings[0],
             "Warning: Config key 'wrap' must be a boolean; ignoring value"
+        );
+    }
+
+    // word_diff
+
+    #[test]
+    fn should_parse_word_diff_true() {
+        let outcome = parse_config("word_diff = true\n");
+        assert_eq!(
+            outcome.config.as_ref().and_then(|cfg| cfg.word_diff),
+            Some(true)
+        );
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn should_parse_word_diff_false() {
+        let outcome = parse_config("word_diff = false\n");
+        assert_eq!(
+            outcome.config.as_ref().and_then(|cfg| cfg.word_diff),
+            Some(false)
+        );
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn should_leave_word_diff_unset_when_absent() {
+        let outcome = parse_config("wrap = true\n");
+        assert_eq!(outcome.config.as_ref().and_then(|cfg| cfg.word_diff), None);
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn should_warn_and_ignore_word_diff_with_invalid_type() {
+        let outcome = parse_config("word_diff = \"yes\"\n");
+        assert_eq!(outcome.config.as_ref().and_then(|cfg| cfg.word_diff), None);
+        assert_eq!(outcome.warnings.len(), 1);
+        assert_eq!(
+            outcome.warnings[0],
+            "Warning: Config key 'word_diff' must be a boolean; ignoring value"
         );
     }
 

@@ -863,6 +863,20 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         ]),
         Line::from(vec![
             Span::styled(
+                "  :set worddiff[!]",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  Enable/toggle highlighting of changed words"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  :set noworddiff",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  Disable highlighting of changed words"),
+        ]),
+        Line::from(vec![
+            Span::styled(
                 "  :set commits",
                 Style::default().add_modifier(Modifier::BOLD),
             ),

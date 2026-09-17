@@ -341,6 +341,23 @@ fn should_mark_a_commit_only_file_reviewed_after_narrowing_the_commit_pane() {
     );
 }
 
+#[test]
+fn should_keep_word_diff_off_across_a_commit_selection_change() {
+    let mut app = build_app(vec![normal_commit("c2"), normal_commit("c1")]);
+    app.review_commits = app.commit_list.clone();
+    app.commit_diff_cache.insert((0, 0), Vec::new());
+    app.set_word_diff(false);
+
+    app.commit_selection_range = Some((0, 0));
+    app.reload_inline_selection()
+        .expect("reload should succeed");
+
+    assert!(
+        !app.word_diff,
+        "a commit selection change must not reset the word-diff toggle"
+    );
+}
+
 /// The hunk-level mark (`R`) has the same dependency on session registration as
 /// the file-level one, so it failed in the same place for the same reason.
 #[test]

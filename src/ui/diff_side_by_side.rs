@@ -2532,6 +2532,30 @@ mod word_diff_render_tests {
     }
 
     #[test]
+    fn should_leave_every_pair_plain_when_word_diff_is_off() {
+        let mut app = pair_app("let x = foo;", "let x = bar;");
+        app.set_word_diff(false);
+        let buffer = draw_sbs(&mut app, 60, 10);
+
+        assert_eq!(
+            marked(&buffer, &app, "let x = foo;"),
+            (String::new(), String::new()),
+            "{}",
+            body_text(&buffer)
+        );
+
+        // Turning it back on takes effect on the next frame.
+        app.set_word_diff(true);
+        let buffer = draw_sbs(&mut app, 60, 10);
+        assert_eq!(
+            marked(&buffer, &app, "let x = foo;"),
+            ("foo".to_string(), "bar".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+    }
+
+    #[test]
     fn should_truncate_the_mark_with_the_text_at_the_column_edge() {
         // With wrap off a column shows `width - 3` characters and an
         // ellipsis. The changed token starts inside the column and runs past

@@ -353,6 +353,19 @@ fn should_propagate_no_changes_when_backend_reports_no_changes() {
     );
 }
 
+#[test]
+fn should_keep_word_diff_off_across_a_reload() {
+    let vcs = ScriptedVcs::new();
+    vcs.push_working_tree_diff(Ok(vec![make_diff_file("a.rs", FileStatus::Added, 10)]));
+    let mut app = build_app_with_scripted_vcs(Vec::new(), vcs);
+    app.toggle_word_diff();
+    assert!(!app.word_diff);
+
+    app.reload_diff_files().expect("reload should succeed");
+
+    assert!(!app.word_diff, "reload must not reset the word-diff toggle");
+}
+
 /// Regression test: narrow the inline commit selector to a subset of commits,
 /// then trigger a generic reload (`:e`, editor exit both route through
 /// `reload_diff_files`). The reload must keep re-fetching the narrowed
