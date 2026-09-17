@@ -10,7 +10,9 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{
     App, DiffSource, ExpandDirection, FocusedPanel, GAP_EXPAND_BATCH, GapId, InputMode,
 };
-use crate::model::{DiffLine, FileStatus, LineOrigin, LineRange, LineSide};
+use crate::model::{
+    ChangeBlock, DiffHunk, DiffLine, FileStatus, HunkSegment, LineOrigin, LineRange, LineSide,
+};
 use crate::theme::Theme;
 use crate::ui::comment_panel;
 use crate::ui::diff_view::{
@@ -776,7 +778,7 @@ pub(super) fn render_side_by_side_diff(frame: &mut Frame, app: &mut App, area: R
 
                 // Process diff lines in side-by-side format
                 let (new_line_idx, cursor_info) = render_hunk_lines_side_by_side(
-                    &hunk.lines,
+                    hunk,
                     line_comments,
                     &ctx,
                     file_idx,
@@ -1148,14 +1150,13 @@ fn render_sbs_expanded_context_line(
 /// Process and render all diff lines in a hunk for side-by-side view
 /// Returns (new_line_idx, optional cursor info for inline comment input)
 fn render_hunk_lines_side_by_side(
-    hunk_lines: &[crate::model::DiffLine],
+    hunk: &DiffHunk,
     line_comments: &std::collections::HashMap<u32, Vec<crate::model::Comment>>,
     ctx: &SideBySideContext,
     file_idx: usize,
     mut line_idx: usize,
     lines: &mut Vec<Line>,
 ) -> (usize, Option<SideBySideCursorInfo>) {
-    let mut i = 0;
     let mut cursor_info_out: Option<SideBySideCursorInfo> = None;
 
     // A commit message is a synthetic "added" file; its lines are Context so
@@ -1168,72 +1169,37 @@ fn render_hunk_lines_side_by_side(
         .get(file_idx)
         .is_some_and(|f| f.is_commit_message);
 
-    while i < hunk_lines.len() {
-        let diff_line = &hunk_lines[i];
-
-        match diff_line.origin {
-            LineOrigin::Context if is_commit_msg => {
-                let (new_line_idx, cursor_info) = render_commit_message_line_side_by_side(
-                    diff_line,
-                    line_comments,
-                    ctx,
-                    file_idx,
-                    line_idx,
-                    lines,
-                );
-                line_idx = new_line_idx;
-                if cursor_info.is_some() {
-                    cursor_info_out = cursor_info;
-                }
-                i += 1;
-            }
-            LineOrigin::Context => {
-                let (new_line_idx, cursor_info) = render_context_line_side_by_side(
-                    diff_line,
-                    line_comments,
-                    ctx,
-                    file_idx,
-                    line_idx,
-                    lines,
-                );
-                line_idx = new_line_idx;
-                if cursor_info.is_some() {
-                    cursor_info_out = cursor_info;
-                }
-                i += 1;
-            }
-            LineOrigin::Deletion => {
-                let (new_line_idx, lines_processed, cursor_info) =
-                    render_deletion_addition_pair_side_by_side(
-                        hunk_lines,
-                        i,
-                        line_comments,
-                        ctx,
-                        file_idx,
-                        line_idx,
-                        lines,
-                    );
-                line_idx = new_line_idx;
-                if cursor_info.is_some() {
-                    cursor_info_out = cursor_info;
-                }
-                i = lines_processed;
-            }
-            LineOrigin::Addition => {
-                let (new_line_idx, cursor_info) = render_standalone_addition_side_by_side(
-                    diff_line,
-                    line_comments,
-                    ctx,
-                    file_idx,
-                    line_idx,
-                    lines,
-                );
-                line_idx = new_line_idx;
-                if cursor_info.is_some() {
-                    cursor_info_out = cursor_info;
-                }
-                i += 1;
-            }
+    for segment in hunk.segments() {
+        let (new_line_idx, cursor_info) = match segment {
+            HunkSegment::Context(i) if is_commit_msg => render_commit_message_line_side_by_side(
+                &hunk.lines[i],
+                line_comments,
+                ctx,
+                file_idx,
+                line_idx,
+                lines,
+            ),
+            HunkSegment::Context(i) => render_context_line_side_by_side(
+                &hunk.lines[i],
+                line_comments,
+                ctx,
+                file_idx,
+                line_idx,
+                lines,
+            ),
+            HunkSegment::ChangeBlock(block) => render_change_block_side_by_side(
+                hunk,
+                &block,
+                line_comments,
+                ctx,
+                file_idx,
+                line_idx,
+                lines,
+            ),
+        };
+        line_idx = new_line_idx;
+        if cursor_info.is_some() {
+            cursor_info_out = cursor_info;
         }
     }
     (line_idx, cursor_info_out)
@@ -1367,39 +1333,23 @@ fn render_context_line_side_by_side(
     (line_idx, cursor_info_out)
 }
 
-/// Render paired deletions and additions side-by-side
-/// Returns (line_idx, skip_count, optional cursor info for inline comment input)
-fn render_deletion_addition_pair_side_by_side(
-    hunk_lines: &[crate::model::DiffLine],
-    start_idx: usize,
+/// Render a change block as side-by-side rows: each line pair on one row,
+/// then the unpaired tail with the other column empty.
+/// Returns (line_idx, optional cursor info for inline comment input)
+fn render_change_block_side_by_side(
+    hunk: &DiffHunk,
+    block: &ChangeBlock,
     line_comments: &std::collections::HashMap<u32, Vec<crate::model::Comment>>,
     ctx: &SideBySideContext,
     file_idx: usize,
     mut line_idx: usize,
     lines: &mut Vec<Line>,
-) -> (usize, usize, Option<SideBySideCursorInfo>) {
-    // Find the range of consecutive deletions
-    let mut del_end = start_idx + 1;
-    while del_end < hunk_lines.len() && hunk_lines[del_end].origin == LineOrigin::Deletion {
-        del_end += 1;
-    }
-
-    // Find the range of consecutive additions following the deletions
-    let add_start = del_end;
-    let mut add_end = add_start;
-    while add_end < hunk_lines.len() && hunk_lines[add_end].origin == LineOrigin::Addition {
-        add_end += 1;
-    }
-
-    let del_count = del_end - start_idx;
-    let add_count = add_end - add_start;
-    let max_lines = del_count.max(add_count);
+) -> (usize, Option<SideBySideCursorInfo>) {
     let mut cursor_info_out: Option<SideBySideCursorInfo> = None;
 
-    // Render each pair of deletion/addition
-    for offset in 0..max_lines {
-        let del_opt = (offset < del_count).then(|| &hunk_lines[start_idx + offset]);
-        let add_opt = (offset < add_count).then(|| &hunk_lines[add_start + offset]);
+    for (del_idx, add_idx) in block.rows() {
+        let del_opt = del_idx.map(|idx| &hunk.lines[idx]);
+        let add_opt = add_idx.map(|idx| &hunk.lines[idx]);
         if ctx.is_visible(line_idx) {
             let indicator = cursor_indicator(line_idx, ctx.current_line_idx);
 
@@ -1562,105 +1512,6 @@ fn render_deletion_addition_pair_side_by_side(
                     lines,
                 );
             }
-        }
-    }
-
-    (line_idx, add_end, cursor_info_out)
-}
-
-/// Render a standalone addition (no matching deletion)
-/// Returns (new_line_idx, optional cursor info for inline comment input)
-fn render_standalone_addition_side_by_side(
-    diff_line: &crate::model::DiffLine,
-    line_comments: &std::collections::HashMap<u32, Vec<crate::model::Comment>>,
-    ctx: &SideBySideContext,
-    file_idx: usize,
-    mut line_idx: usize,
-    lines: &mut Vec<Line>,
-) -> (usize, Option<SideBySideCursorInfo>) {
-    if ctx.is_visible(line_idx) {
-        let indicator = cursor_indicator(line_idx, ctx.current_line_idx);
-
-        let mut spans = vec![Span::styled(
-            indicator,
-            styles::current_line_indicator_style(ctx.theme),
-        )];
-        add_empty_column_spans(&mut spans, ctx.content_width, ctx.lineno_width);
-        spans.push(Span::styled(" │ ", styles::dim_style(ctx.theme)));
-        add_addition_spans(
-            ctx.theme,
-            &mut spans,
-            diff_line,
-            ctx.content_width,
-            ctx.lineno_width,
-            ctx.display_lineno(diff_line.new_lineno, line_idx),
-            ctx.search_for(line_idx),
-        );
-
-        lines.push(Line::from(spans));
-
-        let w = ctx.lineno_width;
-        let right_content = content_spans_for_diff_line(
-            ctx.theme,
-            diff_line,
-            LineOrigin::Addition,
-            ctx.search_for(line_idx),
-        );
-        let right_pad = column_pad_style(ctx.theme, diff_line, LineOrigin::Addition);
-        let (lp, rp) = sbs_row_prefixes(
-            ctx.theme,
-            indicator,
-            SideSpec {
-                lineno: None,
-                marker: " ",
-                marker_style: Style::default(),
-            },
-            SideSpec {
-                lineno: ctx.display_lineno(diff_line.new_lineno, line_idx),
-                marker: "▌",
-                marker_style: styles::diff_add_style(ctx.theme),
-            },
-            w,
-        );
-        ctx.sbs_meta.borrow_mut().insert(
-            line_idx,
-            SbsRowMeta {
-                left_content: Vec::new(),
-                right_content,
-                left_prefix: lp,
-                right_prefix: rp,
-                left_pad_style: Style::default(),
-                right_pad_style: right_pad,
-            },
-        );
-    } else {
-        lines.push(Line::default());
-    }
-    line_idx += 1;
-
-    // Add comments if any
-    let mut cursor_info_out: Option<SideBySideCursorInfo> = None;
-    if let Some(new_ln) = diff_line.new_lineno {
-        let (new_line_idx, cursor_info) = add_comments_to_line(
-            new_ln,
-            line_comments,
-            LineSide::New,
-            ctx,
-            file_idx,
-            line_idx,
-            lines,
-        );
-        line_idx = new_line_idx;
-        cursor_info_out = cursor_info;
-        if let Some(file) = ctx.app.diff_files.get(file_idx) {
-            line_idx = add_remote_threads_to_line(
-                new_ln,
-                LineSide::New,
-                ctx,
-                file.display_path(),
-                line_idx,
-                lines,
-            );
         }
     }
 

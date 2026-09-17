@@ -318,7 +318,7 @@ impl App {
                                 &mut self.line_annotations,
                                 file_idx,
                                 hunk_idx,
-                                &hunk.lines,
+                                hunk,
                                 &line_comments,
                                 path,
                                 &self.forge_review_threads,
@@ -565,7 +565,7 @@ impl App {
         annotations: &mut Vec<AnnotatedLine>,
         file_idx: usize,
         hunk_idx: usize,
-        lines: &[crate::model::DiffLine],
+        hunk: &DiffHunk,
         line_comments: &std::collections::HashMap<u32, Vec<crate::model::Comment>>,
         path: &std::path::Path,
         remote_threads: &[crate::forge::remote_comments::RemoteReviewThread],
@@ -573,12 +573,11 @@ impl App {
         viewport_width: usize,
         commit_set: Option<&std::collections::HashSet<String>>,
     ) {
-        let mut i = 0;
-        while i < lines.len() {
-            let diff_line = &lines[i];
-
-            match diff_line.origin {
-                LineOrigin::Context => {
+        let lines = &hunk.lines;
+        for segment in hunk.segments() {
+            match segment {
+                HunkSegment::Context(i) => {
+                    let diff_line = &lines[i];
                     annotations.push(AnnotatedLine::SideBySideLine {
                         file_idx,
                         hunk_idx,
@@ -607,41 +606,9 @@ impl App {
                             LineSide::New,
                         );
                     }
-
-                    i += 1
                 }
-
-                LineOrigin::Deletion => {
-                    // Find consecutive deletions
-                    let del_start = i;
-                    let mut del_end = i + 1;
-                    while del_end < lines.len() && lines[del_end].origin == LineOrigin::Deletion {
-                        del_end += 1;
-                    }
-
-                    // Find consecutive additions following deletions
-                    let add_start = del_end;
-                    let mut add_end = add_start;
-                    while add_end < lines.len() && lines[add_end].origin == LineOrigin::Addition {
-                        add_end += 1;
-                    }
-
-                    let del_count = del_end - del_start;
-                    let add_count = add_end - add_start;
-                    let max_lines = del_count.max(add_count);
-
-                    for offset in 0..max_lines {
-                        let del_idx = if offset < del_count {
-                            Some(del_start + offset)
-                        } else {
-                            None
-                        };
-                        let add_idx = if offset < add_count {
-                            Some(add_start + offset)
-                        } else {
-                            None
-                        };
-
+                HunkSegment::ChangeBlock(block) => {
+                    for (del_idx, add_idx) in block.rows() {
                         let old_lineno = del_idx.and_then(|idx| lines[idx].old_lineno);
                         let new_lineno = add_idx.and_then(|idx| lines[idx].new_lineno);
 
@@ -693,40 +660,6 @@ impl App {
                             );
                         }
                     }
-
-                    i = add_end;
-                }
-                LineOrigin::Addition => {
-                    annotations.push(AnnotatedLine::SideBySideLine {
-                        file_idx,
-                        hunk_idx,
-                        del_line_idx: None,
-                        add_line_idx: Some(i),
-                        old_lineno: None,
-                        new_lineno: diff_line.new_lineno,
-                    });
-
-                    Self::push_comments(
-                        annotations,
-                        file_idx,
-                        diff_line.new_lineno,
-                        line_comments,
-                        LineSide::New,
-                        viewport_width,
-                        commit_set,
-                    );
-                    if let Some(new_ln) = diff_line.new_lineno {
-                        Self::push_remote_threads(
-                            annotations,
-                            remote_threads,
-                            remote_index,
-                            path,
-                            new_ln,
-                            LineSide::New,
-                        );
-                    }
-
-                    i += 1;
                 }
             }
         }

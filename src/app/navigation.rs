@@ -1165,162 +1165,49 @@ impl App {
                         }
                     }
                     DiffViewMode::SideBySide => {
-                        use crate::model::LineOrigin;
-                        // Side-by-side mode: pair deletions with following additions
-                        let lines = &hunk.lines;
-                        let mut i = 0;
-                        while i < lines.len() {
-                            let diff_line = &lines[i];
-
-                            match diff_line.origin {
-                                LineOrigin::Context => {
-                                    content_lines += 1;
-
-                                    // Comments for context line
-                                    if let Some(line_comments) = line_comments
-                                        && let Some(new_ln) = diff_line.new_lineno
-                                        && let Some(comments) = line_comments.get(&new_ln)
+                        // Side-by-side mode: a change block's line pairs share
+                        // a row, and each line's comments follow its side.
+                        let comment_rows = |lineno: Option<u32>, side: LineSide| {
+                            let Some(lineno) = lineno else { return 0 };
+                            let mut rows = 0;
+                            if let Some(comments) = line_comments.and_then(|c| c.get(&lineno)) {
+                                for comment in comments {
+                                    let on_side = match side {
+                                        LineSide::Old => comment.side == Some(LineSide::Old),
+                                        LineSide::New => comment.side != Some(LineSide::Old),
+                                    };
+                                    if on_side
+                                        && Self::comment_visible_with(comment, commit_set.as_ref())
                                     {
-                                        for comment in comments {
-                                            if comment.side != Some(LineSide::Old)
-                                                && Self::comment_visible_with(
-                                                    comment,
-                                                    commit_set.as_ref(),
-                                                )
-                                            {
-                                                comment_lines += Self::comment_display_lines(
-                                                    comment,
-                                                    self.diff_state.viewport_width,
-                                                );
-                                            }
-                                        }
+                                        rows += Self::comment_display_lines(
+                                            comment,
+                                            self.diff_state.viewport_width,
+                                        );
                                     }
-                                    if let Some(new_ln) = diff_line.new_lineno {
-                                        comment_lines += remote_thread_rows
-                                            .get(&(new_ln, LineSide::New))
-                                            .copied()
-                                            .unwrap_or(0);
-                                    }
-                                    i += 1;
                                 }
-                                LineOrigin::Deletion => {
-                                    // Find consecutive deletions
-                                    let del_start = i;
-                                    let mut del_end = i + 1;
-                                    while del_end < lines.len()
-                                        && lines[del_end].origin == LineOrigin::Deletion
-                                    {
-                                        del_end += 1;
-                                    }
-
-                                    // Find consecutive additions following deletions
-                                    let add_start = del_end;
-                                    let mut add_end = add_start;
-                                    while add_end < lines.len()
-                                        && lines[add_end].origin == LineOrigin::Addition
-                                    {
-                                        add_end += 1;
-                                    }
-
-                                    let del_count = del_end - del_start;
-                                    let add_count = add_end - add_start;
-                                    // Paired lines use max of the two counts
-                                    content_lines += del_count.max(add_count);
-
-                                    // Count comments for all deletions and additions in this pair
-                                    if let Some(line_comments) = line_comments {
-                                        for line in &lines[del_start..del_end] {
-                                            if let Some(old_ln) = line.old_lineno
-                                                && let Some(comments) = line_comments.get(&old_ln)
-                                            {
-                                                for comment in comments {
-                                                    if comment.side == Some(LineSide::Old)
-                                                        && Self::comment_visible_with(
-                                                            comment,
-                                                            commit_set.as_ref(),
-                                                        )
-                                                    {
-                                                        comment_lines +=
-                                                            Self::comment_display_lines(
-                                                                comment,
-                                                                self.diff_state.viewport_width,
-                                                            );
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        for line in &lines[add_start..add_end] {
-                                            if let Some(new_ln) = line.new_lineno
-                                                && let Some(comments) = line_comments.get(&new_ln)
-                                            {
-                                                for comment in comments {
-                                                    if comment.side != Some(LineSide::Old)
-                                                        && Self::comment_visible_with(
-                                                            comment,
-                                                            commit_set.as_ref(),
-                                                        )
-                                                    {
-                                                        comment_lines +=
-                                                            Self::comment_display_lines(
-                                                                comment,
-                                                                self.diff_state.viewport_width,
-                                                            );
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    for line in &lines[del_start..del_end] {
-                                        if let Some(old_ln) = line.old_lineno {
-                                            comment_lines += remote_thread_rows
-                                                .get(&(old_ln, LineSide::Old))
-                                                .copied()
-                                                .unwrap_or(0);
-                                        }
-                                    }
-                                    for line in &lines[add_start..add_end] {
-                                        if let Some(new_ln) = line.new_lineno {
-                                            comment_lines += remote_thread_rows
-                                                .get(&(new_ln, LineSide::New))
-                                                .copied()
-                                                .unwrap_or(0);
-                                        }
-                                    }
-
-                                    i = add_end;
-                                }
-                                LineOrigin::Addition => {
-                                    // Standalone addition (not following deletions)
+                            }
+                            rows + remote_thread_rows
+                                .get(&(lineno, side))
+                                .copied()
+                                .unwrap_or(0)
+                        };
+                        for segment in hunk.segments() {
+                            match segment {
+                                HunkSegment::Context(i) => {
                                     content_lines += 1;
-
-                                    if let Some(line_comments) = line_comments
-                                        && let Some(new_ln) = diff_line.new_lineno
-                                        && let Some(comments) = line_comments.get(&new_ln)
-                                    {
-                                        for comment in comments {
-                                            if comment.side != Some(LineSide::Old)
-                                                && Self::comment_visible_with(
-                                                    comment,
-                                                    commit_set.as_ref(),
-                                                )
-                                            {
-                                                comment_lines += Self::comment_display_lines(
-                                                    comment,
-                                                    self.diff_state.viewport_width,
-                                                );
-                                            }
-                                        }
+                                    comment_lines +=
+                                        comment_rows(hunk.lines[i].new_lineno, LineSide::New);
+                                }
+                                HunkSegment::ChangeBlock(block) => {
+                                    content_lines += block.rows().count();
+                                    for line in &hunk.lines[block.deletions.clone()] {
+                                        comment_lines +=
+                                            comment_rows(line.old_lineno, LineSide::Old);
                                     }
-                                    if let Some(new_ln) = diff_line.new_lineno {
-                                        comment_lines += remote_thread_rows
-                                            .get(&(new_ln, LineSide::New))
-                                            .copied()
-                                            .unwrap_or(0);
+                                    for line in &hunk.lines[block.additions.clone()] {
+                                        comment_lines +=
+                                            comment_rows(line.new_lineno, LineSide::New);
                                     }
-
-                                    i += 1;
                                 }
                             }
                         }

@@ -1,6 +1,6 @@
 use ratatui::style::Style;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, ops::Range, path::PathBuf};
 
 use crate::hash::Fnv1aHasher;
 use crate::model::comment::LineSide;
@@ -109,11 +109,103 @@ pub struct DiffFile {
     pub content_hash: u64,
 }
 
+/// A maximal run of deletion lines followed by the maximal run of addition
+/// lines immediately after it, within one hunk.
+///
+/// Both ranges index the hunk's `lines`. Either run may be empty, never both,
+/// and the additions start where the deletions end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeBlock {
+    pub deletions: Range<usize>,
+    pub additions: Range<usize>,
+}
+
+impl ChangeBlock {
+    /// Index of the first line after the block.
+    fn end(&self) -> usize {
+        self.additions.end
+    }
+
+    /// The block's lines paired by position: the deletion and addition at the
+    /// same offset form a line pair. Once the shorter run ends, the remaining
+    /// lines are unpaired and the other side is `None`.
+    pub fn rows(&self) -> impl Iterator<Item = (Option<usize>, Option<usize>)> + '_ {
+        let row_count = self.deletions.len().max(self.additions.len());
+        (0..row_count).map(|offset| {
+            let nth = |run: &Range<usize>| (offset < run.len()).then(|| run.start + offset);
+            (nth(&self.deletions), nth(&self.additions))
+        })
+    }
+}
+
+/// One piece of a hunk in display order: a context line or a change block.
+/// Indices point into the hunk's `lines`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HunkSegment {
+    Context(usize),
+    ChangeBlock(ChangeBlock),
+}
+
+impl HunkSegment {
+    fn end(&self) -> usize {
+        match self {
+            HunkSegment::Context(idx) => idx + 1,
+            HunkSegment::ChangeBlock(block) => block.end(),
+        }
+    }
+}
+
 impl DiffHunk {
     fn review_content_hash(&self) -> u64 {
         let mut hasher = Fnv1aHasher::new();
         write_hunk_content_hash(&mut hasher, &self.lines);
         hasher.finish()
+    }
+
+    /// The hunk's lines in display order, with every deletion or addition
+    /// line folded into its change block.
+    pub fn segments(&self) -> impl Iterator<Item = HunkSegment> + '_ {
+        let mut next = 0;
+        std::iter::from_fn(move || {
+            let line = self.lines.get(next)?;
+            let segment = match line.origin {
+                LineOrigin::Context => HunkSegment::Context(next),
+                LineOrigin::Deletion | LineOrigin::Addition => {
+                    HunkSegment::ChangeBlock(self.change_block_at(next))
+                }
+            };
+            next = segment.end();
+            Some(segment)
+        })
+    }
+
+    /// The hunk's change blocks in display order.
+    pub fn change_blocks(&self) -> impl Iterator<Item = ChangeBlock> + '_ {
+        self.segments().filter_map(|segment| match segment {
+            HunkSegment::ChangeBlock(block) => Some(block),
+            HunkSegment::Context(_) => None,
+        })
+    }
+
+    /// The change block whose first line is `start`, which must be a deletion
+    /// or addition line.
+    fn change_block_at(&self, start: usize) -> ChangeBlock {
+        let run_end = |mut idx: usize, origin: LineOrigin| {
+            while self
+                .lines
+                .get(idx)
+                .is_some_and(|line| line.origin == origin)
+            {
+                idx += 1;
+            }
+            idx
+        };
+        let deletions_end = run_end(start, LineOrigin::Deletion);
+        let additions_end = run_end(deletions_end, LineOrigin::Addition);
+        ChangeBlock {
+            deletions: start..deletions_end,
+            additions: deletions_end..additions_end,
+        }
     }
 }
 
@@ -259,5 +351,109 @@ fn write_hunk_content_hash(hasher: &mut Fnv1aHasher, lines: &[DiffLine]) {
         });
         hasher.write(line.content.as_bytes());
         hasher.write(b"\n");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod change_blocks {
+        use super::*;
+        use LineOrigin::{Addition as A, Context as C, Deletion as D};
+
+        fn hunk(origins: &[LineOrigin]) -> DiffHunk {
+            let lines = origins
+                .iter()
+                .map(|&origin| DiffLine {
+                    origin,
+                    content: String::new(),
+                    old_lineno: None,
+                    new_lineno: None,
+                    highlighted_spans: None,
+                })
+                .collect();
+            DiffHunk {
+                header: String::new(),
+                lines,
+                old_start: 0,
+                old_count: 0,
+                new_start: 0,
+                new_count: 0,
+            }
+        }
+
+        fn blocks(origins: &[LineOrigin]) -> Vec<ChangeBlock> {
+            hunk(origins).change_blocks().collect()
+        }
+
+        fn block(deletions: Range<usize>, additions: Range<usize>) -> ChangeBlock {
+            ChangeBlock {
+                deletions,
+                additions,
+            }
+        }
+
+        #[test]
+        fn deletion_only_block_has_an_empty_addition_run() {
+            assert_eq!(blocks(&[C, D, D, C]), vec![block(1..3, 3..3)]);
+        }
+
+        #[test]
+        fn addition_only_block_has_an_empty_deletion_run() {
+            assert_eq!(blocks(&[C, A, A]), vec![block(1..1, 1..3)]);
+        }
+
+        #[test]
+        fn one_deletion_and_one_addition_form_one_block() {
+            assert_eq!(blocks(&[D, A]), vec![block(0..1, 1..2)]);
+        }
+
+        #[test]
+        fn uneven_runs_form_one_block() {
+            assert_eq!(blocks(&[C, D, D, D, A, A, C]), vec![block(1..4, 4..6)]);
+        }
+
+        #[test]
+        fn context_separates_consecutive_blocks() {
+            assert_eq!(
+                blocks(&[D, A, C, D, D, C, A]),
+                vec![block(0..1, 1..2), block(3..5, 5..5), block(6..6, 6..7)]
+            );
+        }
+
+        #[test]
+        fn additions_before_deletions_are_two_blocks() {
+            assert_eq!(blocks(&[A, D]), vec![block(0..0, 0..1), block(1..2, 2..2)]);
+        }
+
+        #[test]
+        fn context_only_hunk_has_no_blocks() {
+            assert_eq!(blocks(&[C, C]), vec![]);
+        }
+
+        #[test]
+        fn segments_interleave_context_lines_and_blocks_in_order() {
+            let segments: Vec<HunkSegment> = hunk(&[C, D, A, C, C, A]).segments().collect();
+            assert_eq!(
+                segments,
+                vec![
+                    HunkSegment::Context(0),
+                    HunkSegment::ChangeBlock(block(1..2, 2..3)),
+                    HunkSegment::Context(3),
+                    HunkSegment::Context(4),
+                    HunkSegment::ChangeBlock(block(5..5, 5..6)),
+                ]
+            );
+        }
+
+        #[test]
+        fn rows_pair_lines_by_position_and_leave_the_tail_unpaired() {
+            let rows: Vec<_> = block(1..4, 4..6).rows().collect();
+            assert_eq!(
+                rows,
+                vec![(Some(1), Some(4)), (Some(2), Some(5)), (Some(3), None)]
+            );
+        }
     }
 }

@@ -81,7 +81,7 @@ src/
 ├── model/
 │   ├── mod.rs
 │   ├── comment.rs       # Comment, CommentType (Note/Suggestion/Issue/Praise)
-│   ├── diff_types.rs    # DiffFile, DiffHunk, DiffLine, FileStatus, LineOrigin
+│   ├── diff_types.rs    # DiffFile, DiffHunk, DiffLine, FileStatus, LineOrigin, ChangeBlock, HunkSegment
 │   └── review.rs        # ReviewSession, FileReview (the persisted review state)
 │
 ├── input/
