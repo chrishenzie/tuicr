@@ -46,38 +46,67 @@ impl VcsBackend for StubVcs {
     }
 }
 
+/// Lines cycle through a twelve-line pattern: six context lines, a change
+/// block of two deletions paired with two additions, a context line, and a
+/// standalone addition. Each line pair differs in one token, so word diff has
+/// a range to compute on every block; the standalone addition is unpaired and
+/// renders plain.
+///
 /// Four spans per line, matching what the syntax highlighter produces for
 /// ordinary code: a bare `content` string would understate real frame cost.
 fn line(idx: usize) -> DiffLine {
-    let content = format!("    let value_{idx} = compute(input, {idx}); // measured line");
+    let (origin, name_idx, arg) = match idx % 12 {
+        6 | 7 => (LineOrigin::Deletion, idx, "input"),
+        8 | 9 => (LineOrigin::Addition, idx - 2, "output"),
+        11 => (LineOrigin::Addition, idx, "input"),
+        _ => (LineOrigin::Context, idx, "input"),
+    };
+    let content =
+        format!("    let value_{name_idx} = compute({arg}, {name_idx}); // measured line");
     let spans = vec![
         (Style::default(), "    let ".to_string()),
-        (Style::default(), format!("value_{idx}")),
-        (Style::default(), format!(" = compute(input, {idx});")),
+        (Style::default(), format!("value_{name_idx}")),
+        (Style::default(), format!(" = compute({arg}, {name_idx});")),
         (Style::default(), " // measured line".to_string()),
     ];
     DiffLine {
-        origin: if idx.is_multiple_of(3) {
-            LineOrigin::Addition
-        } else {
-            LineOrigin::Context
-        },
+        origin,
         content,
-        old_lineno: Some(idx as u32 + 1),
-        new_lineno: Some(idx as u32 + 1),
+        old_lineno: None,
+        new_lineno: None,
         highlighted_spans: Some(spans),
     }
 }
 
+/// Number the lines of one hunk that starts at line 1 on both sides: a
+/// deletion advances the old side, an addition the new side, and context
+/// advances both.
+fn number_lines(lines: &mut [DiffLine]) {
+    let (mut old, mut new) = (0, 0);
+    for line in lines {
+        if line.origin != LineOrigin::Addition {
+            old += 1;
+            line.old_lineno = Some(old);
+        }
+        if line.origin != LineOrigin::Deletion {
+            new += 1;
+            line.new_lineno = Some(new);
+        }
+    }
+}
+
 fn file(path: &str, lines_per_file: usize) -> DiffFile {
-    let lines: Vec<DiffLine> = (0..lines_per_file).map(line).collect();
+    let mut lines: Vec<DiffLine> = (0..lines_per_file).map(line).collect();
+    number_lines(&mut lines);
+    let old_count = lines.iter().filter(|l| l.old_lineno.is_some()).count() as u32;
+    let new_count = lines.iter().filter(|l| l.new_lineno.is_some()).count() as u32;
     let hunks = vec![DiffHunk {
-        header: format!("@@ -1,{lines_per_file} +1,{lines_per_file} @@"),
+        header: format!("@@ -1,{old_count} +1,{new_count} @@"),
         lines,
         old_start: 1,
-        old_count: lines_per_file as u32,
+        old_count,
         new_start: 1,
-        new_count: lines_per_file as u32,
+        new_count,
     }];
     let content_hash = DiffFile::compute_content_hash(&hunks);
     DiffFile {
@@ -90,6 +119,13 @@ fn file(path: &str, lines_per_file: usize) -> DiffFile {
         is_commit_message: false,
         content_hash,
     }
+}
+
+/// `file_count` files of `lines_per_file` lines each.
+fn files(file_count: usize, lines_per_file: usize) -> Vec<DiffFile> {
+    (0..file_count)
+        .map(|i| file(&format!("src/module_{i}/file_{i}.rs"), lines_per_file))
+        .collect()
 }
 
 fn app_with(files: Vec<DiffFile>) -> App {
@@ -146,9 +182,7 @@ fn frame_micros_with_comments(
     lines_per_file: usize,
     comments_per_file: usize,
 ) -> u128 {
-    let files: Vec<DiffFile> = (0..file_count)
-        .map(|i| file(&format!("src/module_{i}/file_{i}.rs"), lines_per_file))
-        .collect();
+    let files = files(file_count, lines_per_file);
     let mut app = app_with(files.clone());
 
     for (i, f) in files.iter().enumerate() {
@@ -169,33 +203,25 @@ fn frame_micros_with_comments(
     }
     app.rebuild_annotations();
 
-    let mut terminal = Terminal::new(TestBackend::new(180, 50)).unwrap();
-    let mut samples = Vec::new();
-    for _ in 0..21 {
-        let start = Instant::now();
-        terminal
-            .draw(|frame| crate::ui::render(frame, &mut app))
-            .expect("draw frame");
-        samples.push(start.elapsed().as_micros());
-    }
-    samples.sort_unstable();
-    samples[samples.len() / 2]
+    median_frame_micros(&mut app)
 }
 
 /// Median frame time in microseconds for a diff of `file_count` ×
 /// `lines_per_file`, drawn at a realistic terminal size.
 fn frame_micros(file_count: usize, lines_per_file: usize) -> u128 {
-    let files = (0..file_count)
-        .map(|i| file(&format!("src/module_{i}/file_{i}.rs"), lines_per_file))
-        .collect();
-    let mut app = app_with(files);
-    let mut terminal = Terminal::new(TestBackend::new(180, 50)).unwrap();
+    let mut app = app_with(files(file_count, lines_per_file));
+    median_frame_micros(&mut app)
+}
 
+/// Median frame time in microseconds for `app`, drawn at a realistic
+/// terminal size.
+fn median_frame_micros(app: &mut App) -> u128 {
+    let mut terminal = Terminal::new(TestBackend::new(180, 50)).unwrap();
     let mut samples = Vec::new();
     for _ in 0..21 {
         let start = Instant::now();
         terminal
-            .draw(|frame| crate::ui::render(frame, &mut app))
+            .draw(|frame| crate::ui::render(frame, app))
             .expect("draw frame");
         samples.push(start.elapsed().as_micros());
     }
@@ -226,5 +252,42 @@ fn render_perf_with_comments() {
             files * comments,
             micros as f64 / 1000.0
         );
+    }
+}
+
+/// Word diff runs per visible line pair in Normal mode and, because the
+/// renderers build every row there, per line pair in the whole diff in
+/// Comment mode. Each case is drawn with the feature on and off, so the
+/// difference is its per-frame cost.
+#[test]
+#[ignore = "timing measurement, run explicitly"]
+fn render_perf_word_diff() {
+    for view in [DiffViewMode::Unified, DiffViewMode::SideBySide] {
+        for (mode, file_count) in [
+            (InputMode::Normal, 20),
+            (InputMode::Normal, 100),
+            (InputMode::Comment, 20),
+            (InputMode::Comment, 100),
+        ] {
+            let frame_micros = |word_diff: bool| {
+                let mut app = app_with(files(file_count, 200));
+                if view == DiffViewMode::SideBySide {
+                    app.toggle_diff_view_mode();
+                }
+                app.set_word_diff(word_diff);
+                if mode == InputMode::Comment {
+                    app.enter_comment_mode(false, Some((1, LineSide::New)));
+                }
+                median_frame_micros(&mut app)
+            };
+            let on = frame_micros(true);
+            let off = frame_micros(false);
+            println!(
+                "{view:?} view, {mode:?} mode, {file_count:>3} files x 200 lines: \
+                 word diff on {:>8.2} ms/frame, off {:>8.2} ms/frame",
+                on as f64 / 1000.0,
+                off as f64 / 1000.0
+            );
+        }
     }
 }
