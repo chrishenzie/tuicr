@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use ratatui::{style::Style, text::Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -156,7 +158,7 @@ pub(crate) fn contains_fold(text: &str, needle_folded: &str) -> bool {
     fold_for_search(text).contains(needle_folded)
 }
 
-fn search_match_ranges(text: &str, needle_lower: &str) -> Vec<(usize, usize)> {
+fn search_match_ranges(text: &str, needle_lower: &str) -> Vec<Range<usize>> {
     if needle_lower.is_empty() || text.is_empty() {
         return Vec::new();
     }
@@ -166,7 +168,7 @@ fn search_match_ranges(text: &str, needle_lower: &str) -> Vec<(usize, usize)> {
         return merge_touching_ranges(
             lower
                 .match_indices(needle_lower)
-                .map(|(start, _)| (start, start + needle_lower.len())),
+                .map(|(start, _)| start..start + needle_lower.len()),
         );
     }
 
@@ -196,16 +198,20 @@ fn search_match_ranges(text: &str, needle_lower: &str) -> Vec<(usize, usize)> {
                 .expect("owner offsets are char boundaries");
             orig_end += ch.len_utf8();
         }
-        (orig_start, orig_end)
+        orig_start..orig_end
     }))
 }
 
-fn merge_touching_ranges(matches: impl Iterator<Item = (usize, usize)>) -> Vec<(usize, usize)> {
-    let mut ranges: Vec<(usize, usize)> = Vec::new();
-    for (start, end) in matches {
+/// Collect ascending ranges, merging each into the last when they touch or
+/// overlap, so the result is ascending and disjoint.
+pub(super) fn merge_touching_ranges(
+    matches: impl Iterator<Item = Range<usize>>,
+) -> Vec<Range<usize>> {
+    let mut ranges: Vec<Range<usize>> = Vec::new();
+    for range in matches {
         match ranges.last_mut() {
-            Some(last) if start <= last.1 => last.1 = last.1.max(end),
-            _ => ranges.push((start, end)),
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => ranges.push(range),
         }
     }
     ranges
@@ -221,7 +227,7 @@ pub(super) fn apply_search_highlight_pairs(
     if ranges.is_empty() {
         return None;
     }
-    Some(split_pairs_at_ranges(pairs, ranges, highlight))
+    Some(split_pairs_at_ranges(pairs, &ranges, highlight))
 }
 
 pub(super) fn apply_search_highlight_text(
@@ -236,7 +242,7 @@ pub(super) fn apply_search_highlight_text(
     }
     Some(split_pairs_at_ranges(
         &[(style, text.to_string())],
-        ranges,
+        &ranges,
         highlight,
     ))
 }
@@ -255,7 +261,7 @@ pub(super) fn apply_search_highlight_spans(
         .into_iter()
         .map(|span| (span.style, span.content.into_owned()))
         .collect();
-    split_pairs_at_ranges(&pairs, ranges, highlight)
+    split_pairs_at_ranges(&pairs, &ranges, highlight)
         .into_iter()
         .map(|(style, text)| Span::styled(text, style))
         .collect()
@@ -263,11 +269,11 @@ pub(super) fn apply_search_highlight_spans(
 
 fn split_pairs_at_ranges(
     pairs: &[(Style, String)],
-    ranges: Vec<(usize, usize)>,
+    ranges: &[Range<usize>],
     highlight: Style,
 ) -> Vec<(Style, String)> {
     let mut out: Vec<(Style, String)> = Vec::new();
-    let mut ranges = ranges.into_iter().peekable();
+    let mut ranges = ranges.iter().peekable();
     let mut span_start = 0;
     for (style, text) in pairs {
         if text.is_empty() {
@@ -277,11 +283,12 @@ fn split_pairs_at_ranges(
         let span_end = span_start + text.len();
         let mut cursor = span_start;
         while cursor < span_end {
-            while ranges.peek().is_some_and(|&(_, end)| end <= cursor) {
+            while ranges.peek().is_some_and(|range| range.end <= cursor) {
                 ranges.next();
             }
-            match ranges.peek().copied() {
-                Some((start, end)) if start < span_end => {
+            match ranges.peek() {
+                Some(range) if range.start < span_end => {
+                    let (start, end) = (range.start, range.end);
                     if start > cursor {
                         out.push((
                             *style,
