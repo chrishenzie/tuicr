@@ -73,8 +73,33 @@ pub(super) fn truncate_or_pad_spans(
     width: usize,
     base_style: Style,
 ) -> Vec<Span<'static>> {
+    truncate_or_pad_styled(
+        spans.iter().map(|(style, text)| (*style, text.as_str())),
+        width,
+        base_style,
+    )
+}
+
+/// [`truncate_or_pad_spans`] for a line that is already styled spans.
+pub(super) fn truncate_or_pad_line(
+    spans: &[Span<'_>],
+    width: usize,
+    base_style: Style,
+) -> Vec<Span<'static>> {
+    truncate_or_pad_styled(
+        spans.iter().map(|span| (span.style, span.content.as_ref())),
+        width,
+        base_style,
+    )
+}
+
+fn truncate_or_pad_styled<'a>(
+    spans: impl Iterator<Item = (Style, &'a str)> + Clone,
+    width: usize,
+    base_style: Style,
+) -> Vec<Span<'static>> {
     // Count total display width
-    let total_width: usize = spans.iter().map(|(_, text)| text.width()).sum();
+    let total_width: usize = spans.clone().map(|(_, text)| text.width()).sum();
 
     if total_width > width {
         // Need to truncate
@@ -88,7 +113,7 @@ pub(super) fn truncate_or_pad_spans(
 
             let text_width = text.width();
             if text_width <= remaining {
-                result.push(Span::styled(text.clone(), *style));
+                result.push(Span::styled(text.to_string(), style));
                 remaining -= text_width;
             } else {
                 // Truncate this span character by character to fit remaining width
@@ -103,7 +128,7 @@ pub(super) fn truncate_or_pad_spans(
                     current_width += char_width;
                 }
                 if !truncated.is_empty() {
-                    result.push(Span::styled(truncated, *style));
+                    result.push(Span::styled(truncated, style));
                 }
                 remaining = 0;
             }
@@ -115,8 +140,7 @@ pub(super) fn truncate_or_pad_spans(
     } else if total_width < width {
         // Need to pad
         let mut result: Vec<Span> = spans
-            .iter()
-            .map(|(style, text)| Span::styled(text.clone(), *style))
+            .map(|(style, text)| Span::styled(text.to_string(), style))
             .collect();
 
         // Add padding
@@ -126,8 +150,7 @@ pub(super) fn truncate_or_pad_spans(
     } else {
         // Perfect fit
         spans
-            .iter()
-            .map(|(style, text)| Span::styled(text.clone(), *style))
+            .map(|(style, text)| Span::styled(text.to_string(), style))
             .collect()
     }
 }

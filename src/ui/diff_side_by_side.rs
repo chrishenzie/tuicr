@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -24,8 +26,10 @@ use crate::ui::diff_view::{
 use crate::ui::styles;
 use crate::ui::text_utils::{
     apply_search_highlight_pairs, apply_search_highlight_spans, apply_search_highlight_text,
-    truncate_or_pad, truncate_or_pad_pairs_by_chars, truncate_or_pad_spans, wrap_spans,
+    truncate_or_pad, truncate_or_pad_line, truncate_or_pad_pairs_by_chars, truncate_or_pad_spans,
+    wrap_spans,
 };
+use crate::ui::word_diff::{apply_word_highlight, line_pair_ranges};
 use crate::vcs::git::calculate_gap;
 
 #[derive(Clone, Default)]
@@ -38,13 +42,18 @@ struct SbsRowMeta {
     right_pad_style: Style,
 }
 
+/// A diff line's content as full-line spans, in layer order: the diff style,
+/// syntax spans, word highlight, then search highlight, which wins where the
+/// two overlap. The highlights go on the full line, before any truncation,
+/// wrapping, or horizontal scroll, so every row path marks the same
+/// characters.
 fn content_spans_for_diff_line(
     theme: &Theme,
     dl: &DiffLine,
-    origin: LineOrigin,
+    word_ranges: &[Range<usize>],
     search: Option<(&str, Style)>,
 ) -> Vec<Span<'static>> {
-    let base = match origin {
+    let base = match dl.origin {
         LineOrigin::Context => styles::diff_context_style(theme),
         LineOrigin::Addition => styles::diff_add_style(theme),
         LineOrigin::Deletion => styles::diff_del_style(theme),
@@ -54,6 +63,7 @@ fn content_spans_for_diff_line(
     } else {
         vec![Span::styled(dl.content.clone(), base)]
     };
+    let spans = apply_word_highlight(theme, dl, word_ranges, spans);
     match search {
         Some((needle, hl)) => apply_search_highlight_spans(spans, needle, hl),
         None => spans,
@@ -120,10 +130,70 @@ fn pad_spans_to_width(
     spans
 }
 
+#[derive(Clone, Copy)]
 struct SideSpec {
     lineno: Option<u32>,
     marker: &'static str,
     marker_style: Style,
+}
+
+/// One column of a change-block row, built once for both row paths: the
+/// direct row truncates or pads `content` to the column, and the wrap path
+/// wraps it, so both mark the same characters.
+struct ChangeColumn {
+    content: Vec<Span<'static>>,
+    pad_style: Style,
+    side: SideSpec,
+}
+
+impl ChangeColumn {
+    /// The column for `dl`, a line of a change block: a deletion fills the
+    /// left column, an addition the right.
+    fn for_line(
+        ctx: &SideBySideContext,
+        dl: &DiffLine,
+        word_ranges: &[Range<usize>],
+        line_idx: usize,
+    ) -> Self {
+        let (lineno, marker_style) = match dl.origin {
+            LineOrigin::Addition => (dl.new_lineno, styles::diff_add_style(ctx.theme)),
+            LineOrigin::Deletion | LineOrigin::Context => {
+                (dl.old_lineno, styles::diff_del_style(ctx.theme))
+            }
+        };
+        Self {
+            content: content_spans_for_diff_line(
+                ctx.theme,
+                dl,
+                word_ranges,
+                ctx.search_for(line_idx),
+            ),
+            pad_style: column_pad_style(ctx.theme, dl, dl.origin),
+            side: SideSpec {
+                lineno: ctx.display_lineno(lineno, line_idx),
+                marker: "▌",
+                marker_style,
+            },
+        }
+    }
+
+    /// The column of the unpaired tail's other side: blank, no marker.
+    fn empty() -> Self {
+        Self {
+            content: Vec::new(),
+            pad_style: Style::default(),
+            side: SideSpec {
+                lineno: None,
+                marker: " ",
+                marker_style: Style::default(),
+            },
+        }
+    }
+
+    /// The content cut or padded to one row of the column.
+    fn cell(&self, width: usize) -> Vec<Span<'static>> {
+        truncate_or_pad_line(&self.content, width, self.pad_style)
+    }
 }
 
 fn sbs_row_prefixes(
@@ -1270,8 +1340,7 @@ fn render_context_line_side_by_side(
 
         lines.push(Line::from(spans));
 
-        let content =
-            content_spans_for_diff_line(ctx.theme, diff_line, LineOrigin::Context, search);
+        let content = content_spans_for_diff_line(ctx.theme, diff_line, &[], search);
         let ctx_style = styles::diff_context_style(ctx.theme);
         let (lp, rp) = sbs_row_prefixes(
             ctx.theme,
@@ -1351,104 +1420,41 @@ fn render_change_block_side_by_side(
         let del_opt = del_idx.map(|idx| &hunk.lines[idx]);
         let add_opt = add_idx.map(|idx| &hunk.lines[idx]);
         if ctx.is_visible(line_idx) {
+            let word_ranges = del_opt
+                .zip(add_opt)
+                .map(|(del, add)| line_pair_ranges(ctx.app, del, add))
+                .unwrap_or_default();
+            let left = del_opt.map_or_else(ChangeColumn::empty, |dl| {
+                ChangeColumn::for_line(ctx, dl, &word_ranges.deletion, line_idx)
+            });
+            let right = add_opt.map_or_else(ChangeColumn::empty, |al| {
+                ChangeColumn::for_line(ctx, al, &word_ranges.addition, line_idx)
+            });
+
             let indicator = cursor_indicator(line_idx, ctx.current_line_idx);
-
-            let mut spans = vec![Span::styled(
-                indicator,
-                styles::current_line_indicator_style(ctx.theme),
-            )];
-
-            // Left side (deletion)
-            if let Some(del_line) = del_opt {
-                add_deletion_spans(
-                    ctx.theme,
-                    &mut spans,
-                    del_line,
-                    ctx.content_width,
-                    ctx.lineno_width,
-                    ctx.display_lineno(del_line.old_lineno, line_idx),
-                    ctx.search_for(line_idx),
-                );
-            } else {
-                add_empty_column_spans(&mut spans, ctx.content_width, ctx.lineno_width);
-            }
-
-            spans.push(Span::styled(" │ ", styles::dim_style(ctx.theme)));
-
-            // Right side (addition)
-            if let Some(add_line) = add_opt {
-                add_addition_spans(
-                    ctx.theme,
-                    &mut spans,
-                    add_line,
-                    ctx.content_width,
-                    ctx.lineno_width,
-                    ctx.display_lineno(add_line.new_lineno, line_idx),
-                    ctx.search_for(line_idx),
-                );
-            } else {
-                add_empty_column_spans(&mut spans, ctx.content_width, ctx.lineno_width);
-            }
-
-            lines.push(Line::from(spans));
-
-            let w = ctx.lineno_width;
-            let (left_content, left_pad, left_marker, left_lineno, left_marker_style) =
-                match del_opt {
-                    Some(dl) => (
-                        content_spans_for_diff_line(
-                            ctx.theme,
-                            dl,
-                            LineOrigin::Deletion,
-                            ctx.search_for(line_idx),
-                        ),
-                        column_pad_style(ctx.theme, dl, LineOrigin::Deletion),
-                        "▌",
-                        ctx.display_lineno(dl.old_lineno, line_idx),
-                        styles::diff_del_style(ctx.theme),
-                    ),
-                    None => (Vec::new(), Style::default(), " ", None, Style::default()),
-                };
-            let (right_content, right_pad, right_marker, right_lineno, right_marker_style) =
-                match add_opt {
-                    Some(al) => (
-                        content_spans_for_diff_line(
-                            ctx.theme,
-                            al,
-                            LineOrigin::Addition,
-                            ctx.search_for(line_idx),
-                        ),
-                        column_pad_style(ctx.theme, al, LineOrigin::Addition),
-                        "▌",
-                        ctx.display_lineno(al.new_lineno, line_idx),
-                        styles::diff_add_style(ctx.theme),
-                    ),
-                    None => (Vec::new(), Style::default(), " ", None, Style::default()),
-                };
-            let (lp, rp) = sbs_row_prefixes(
+            let (left_prefix, right_prefix) = sbs_row_prefixes(
                 ctx.theme,
                 indicator,
-                SideSpec {
-                    lineno: left_lineno,
-                    marker: left_marker,
-                    marker_style: left_marker_style,
-                },
-                SideSpec {
-                    lineno: right_lineno,
-                    marker: right_marker,
-                    marker_style: right_marker_style,
-                },
-                w,
+                left.side,
+                right.side,
+                ctx.lineno_width,
             );
+
+            let mut spans = left_prefix.clone();
+            spans.extend(left.cell(ctx.content_width));
+            spans.extend(right_prefix.clone());
+            spans.extend(right.cell(ctx.content_width));
+            lines.push(Line::from(spans));
+
             ctx.sbs_meta.borrow_mut().insert(
                 line_idx,
                 SbsRowMeta {
-                    left_content,
-                    right_content,
-                    left_prefix: lp,
-                    right_prefix: rp,
-                    left_pad_style: left_pad,
-                    right_pad_style: right_pad,
+                    left_content: left.content,
+                    right_content: right.content,
+                    left_prefix,
+                    right_prefix,
+                    left_pad_style: left.pad_style,
+                    right_pad_style: right.pad_style,
                 },
             );
         } else {
@@ -1576,87 +1582,6 @@ fn render_commit_message_line_side_by_side(
     }
 
     (line_idx, cursor_info_out)
-}
-
-/// Add deletion line spans to the spans vector
-fn add_deletion_spans(
-    theme: &Theme,
-    spans: &mut Vec<Span>,
-    diff_line: &crate::model::DiffLine,
-    content_width: usize,
-    lw: usize,
-    display_lineno: Option<u32>,
-    search: Option<(&str, Style)>,
-) {
-    let line_num = display_lineno
-        .map(|n| format!("{n:>lw$}"))
-        .unwrap_or_else(|| " ".repeat(lw));
-
-    spans.push(Span::styled(
-        format!("{line_num} "),
-        styles::dim_style(theme),
-    ));
-    spans.push(Span::styled("▌".to_string(), styles::diff_del_style(theme)));
-
-    // Use syntax highlighting if available
-    if let Some(ref highlighted) = diff_line.highlighted_spans {
-        let syntax_pad_style = Style::default().fg(theme.diff_del).bg(theme.syntax_del_bg);
-        let content_spans =
-            searched_cell_spans(highlighted, content_width, syntax_pad_style, search);
-        spans.extend(content_spans);
-    } else {
-        spans.extend(plain_cell_spans(
-            &diff_line.content,
-            styles::diff_del_style(theme),
-            content_width,
-            search,
-        ));
-    }
-}
-
-/// Add addition line spans to the spans vector
-fn add_addition_spans(
-    theme: &Theme,
-    spans: &mut Vec<Span>,
-    diff_line: &crate::model::DiffLine,
-    content_width: usize,
-    lw: usize,
-    display_lineno: Option<u32>,
-    search: Option<(&str, Style)>,
-) {
-    let line_num = display_lineno
-        .map(|n| format!("{n:>lw$}"))
-        .unwrap_or_else(|| " ".repeat(lw));
-
-    spans.push(Span::styled(
-        format!("{line_num} "),
-        styles::dim_style(theme),
-    ));
-    spans.push(Span::styled("▌".to_string(), styles::diff_add_style(theme)));
-
-    // Use syntax highlighting if available
-    if let Some(ref highlighted) = diff_line.highlighted_spans {
-        let syntax_pad_style = Style::default().fg(theme.diff_add).bg(theme.syntax_add_bg);
-        let content_spans =
-            searched_cell_spans(highlighted, content_width, syntax_pad_style, search);
-        spans.extend(content_spans);
-    } else {
-        spans.extend(plain_cell_spans(
-            &diff_line.content,
-            styles::diff_add_style(theme),
-            content_width,
-            search,
-        ));
-    }
-}
-
-/// Add empty column spans (for when one side has no content)
-fn add_empty_column_spans(spans: &mut Vec<Span>, content_width: usize, lw: usize) {
-    // line_num(lw) + space(1) + prefix(1) + content
-    spans.push(Span::styled(
-        " ".repeat(lw + 1 + 1 + content_width),
-        Style::default(),
-    ));
 }
 
 /// Add comments for a specific line.
@@ -2017,7 +1942,7 @@ mod remote_comments_side_by_side_snapshot_tests {
         make_pr_app_with(vec![sample_diff_file()])
     }
 
-    fn make_pr_app_with(diff_files: Vec<DiffFile>) -> App {
+    pub(super) fn make_pr_app_with(diff_files: Vec<DiffFile>) -> App {
         let pr = PullRequestDiffSource {
             key: PrSessionKey::new(repo(), 125, "headsha".to_string()),
             base_sha: "basesha".to_string(),
@@ -2253,7 +2178,7 @@ mod remote_comments_side_by_side_snapshot_tests {
         }
     }
 
-    fn draw_sbs(app: &mut App, w: u16, h: u16) -> Buffer {
+    pub(super) fn draw_sbs(app: &mut App, w: u16, h: u16) -> Buffer {
         let backend = TestBackend::new(w, h);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -2452,5 +2377,328 @@ mod remote_comments_side_by_side_snapshot_tests {
             checked, 1,
             "expected the commit message body to render exactly once, got {checked}"
         );
+    }
+}
+
+#[cfg(test)]
+mod word_diff_render_tests {
+    //! Render tests for word diff in the side-by-side view. Each draws into a
+    //! `TestBackend` and asserts which cells carry the word background, so
+    //! the assertions read as the marked text of a row. A line pair shares
+    //! one row, so a row yields both sides' marks.
+    use super::remote_comments_side_by_side_snapshot_tests::{draw_sbs, make_pr_app_with};
+    use crate::app::{App, sbs_left_gutter, sbs_overhead};
+    use crate::ui::word_diff::test_support::{
+        body_text, cells_with_bg, change_block_file, row_containing, row_text, text_with_bg,
+    };
+    use ratatui::buffer::Buffer;
+    use ratatui::style::{Color, Style};
+
+    fn pair_app(deletion: &str, addition: &str) -> App {
+        make_pr_app_with(vec![change_block_file("context", &[deletion], &[addition])])
+    }
+
+    /// The width of each content column when the frame is `frame_width` wide.
+    fn content_width(app: &App, frame_width: usize) -> usize {
+        (frame_width - 2 - sbs_overhead(app.lineno_width()) as usize) / 2
+    }
+
+    /// The x of the column divider glyph when the frame is `frame_width` wide.
+    fn divider_x(app: &App, frame_width: usize) -> u16 {
+        let gutter = sbs_left_gutter(app.lineno_width()) as usize;
+        (1 + gutter + content_width(app, frame_width) + 1) as u16
+    }
+
+    /// The text of the row containing `needle` that carries the deletion and
+    /// the addition word background.
+    fn marked(buffer: &Buffer, app: &App, needle: &str) -> (String, String) {
+        let row = row_containing(buffer, needle);
+        (
+            text_with_bg(buffer, row, app.theme.word_del_bg()),
+            text_with_bg(buffer, row, app.theme.word_add_bg()),
+        )
+    }
+
+    #[test]
+    fn should_mark_the_changed_token_in_both_columns_of_a_pair() {
+        let mut app = pair_app("let x = foo;", "let x = bar;");
+        let buffer = draw_sbs(&mut app, 60, 10);
+
+        assert_eq!(
+            marked(&buffer, &app, "let x = foo;"),
+            ("foo".to_string(), "bar".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+        // The mark adds no characters: the indicator cell, both columns,
+        // the divider, and the row below are as before.
+        let row = row_containing(&buffer, "let x = foo;");
+        let width = content_width(&app, 60);
+        let lw = app.lineno_width();
+        assert_eq!(
+            row_text(&buffer, row).trim_matches('│'),
+            format!(
+                " {:>lw$} ▌{:width$} │ {:>lw$} ▌{:width$}",
+                2, "let x = foo;", 2, "let x = bar;"
+            )
+        );
+        assert_eq!(buffer[(divider_x(&app, 60), row)].symbol(), "│");
+        assert!(
+            row_text(&buffer, row + 1)
+                .trim_matches('│')
+                .trim()
+                .is_empty(),
+            "{}",
+            body_text(&buffer)
+        );
+        assert!(
+            row_text(&buffer, 1).starts_with("│▶ ═══ src/lib.rs"),
+            "cursor stays on the file header:\n{}",
+            body_text(&buffer)
+        );
+    }
+
+    #[test]
+    fn should_keep_the_cursor_row_as_before() {
+        // The cursor-row paint covers every cell but a search match, so the
+        // mark is hidden there like the diff background is; the row itself,
+        // its indicator, and its text are unchanged.
+        let mut app = pair_app("let x = foo;", "let x = bar;");
+        // With wrap off, screen row `r` inside the border is line `r - 1`.
+        app.set_diff_wrap(false);
+        let plain = draw_sbs(&mut app, 60, 10);
+        let row = row_containing(&plain, "let x = foo;");
+        app.diff_state.cursor_line = row as usize - 1;
+        let buffer = draw_sbs(&mut app, 60, 10);
+
+        assert_eq!(row_containing(&buffer, "let x = foo;"), row);
+        assert_eq!(
+            row_text(&buffer, row),
+            row_text(&plain, row).replacen(' ', "▶", 1),
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            marked(&buffer, &app, "let x = foo;"),
+            (String::new(), String::new())
+        );
+    }
+
+    #[test]
+    fn should_mark_the_same_characters_with_wrap_on_and_off() {
+        let mut app = pair_app(
+            "let total = compute_total(items);",
+            "let total = compute_sum(items);",
+        );
+        app.set_diff_wrap(false);
+        let unwrapped = draw_sbs(&mut app, 120, 10);
+        app.set_diff_wrap(true);
+        app.rebuild_annotations();
+        let wrapped = draw_sbs(&mut app, 120, 10);
+
+        let expected = ("compute_total".to_string(), "compute_sum".to_string());
+        assert_eq!(marked(&unwrapped, &app, "let total"), expected);
+        assert_eq!(marked(&wrapped, &app, "let total"), expected);
+        let row = row_containing(&unwrapped, "let total");
+        assert_eq!(
+            cells_with_bg(&unwrapped, row, app.theme.word_add_bg()),
+            cells_with_bg(&wrapped, row, app.theme.word_add_bg())
+        );
+    }
+
+    #[test]
+    fn should_pair_an_uneven_block_by_position_and_leave_the_padded_tail_plain() {
+        let mut app = make_pr_app_with(vec![change_block_file(
+            "context",
+            &["a = 1;", "b = 2;"],
+            &["a = 10;", "b = 20;", "c = 30;"],
+        )]);
+        let buffer = draw_sbs(&mut app, 60, 10);
+
+        assert_eq!(
+            marked(&buffer, &app, "a = 1;"),
+            ("1".to_string(), "10".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            marked(&buffer, &app, "b = 2;"),
+            ("2".to_string(), "20".to_string())
+        );
+        assert_eq!(
+            marked(&buffer, &app, "c = 30;"),
+            (String::new(), String::new())
+        );
+    }
+
+    #[test]
+    fn should_truncate_the_mark_with_the_text_at_the_column_edge() {
+        // With wrap off a column shows `width - 3` characters and an
+        // ellipsis. The changed token starts inside the column and runs past
+        // it; the unchanged head keeps the pair under the dissimilar guard.
+        let head = "abcdefghijklmnopqrstuvwxyz01234567";
+        let token = |prefix: &str| format!("{prefix}{}", "b".repeat(36));
+        let mut app = pair_app(
+            &format!("{head} {}", token("old_")),
+            &format!("{head} {}", token("new_")),
+        );
+        app.set_diff_wrap(false);
+        let buffer = draw_sbs(&mut app, 100, 10);
+
+        let shown = content_width(&app, 100) - 3 - head.len() - 1;
+        let row = row_containing(&buffer, head);
+        assert_eq!(
+            marked(&buffer, &app, head),
+            (
+                token("old_")[..shown].to_string(),
+                token("new_")[..shown].to_string()
+            ),
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(row_text(&buffer, row).matches("...").count(), 2);
+        assert_eq!(buffer[(divider_x(&app, 100), row)].symbol(), "│");
+    }
+
+    #[test]
+    fn should_move_the_mark_with_horizontal_scroll() {
+        let mut app = pair_app("let x = foo;", "let x = bar;");
+        app.set_diff_wrap(false);
+        let unscrolled = draw_sbs(&mut app, 50, 10);
+        app.diff_state.scroll_x = 3;
+        let scrolled = draw_sbs(&mut app, 50, 10);
+        assert_eq!(
+            app.diff_state.scroll_x, 3,
+            "the file header allows the scroll"
+        );
+
+        let row = row_containing(&unscrolled, "let x = foo;");
+        for bg in [app.theme.word_del_bg(), app.theme.word_add_bg()] {
+            let before = cells_with_bg(&unscrolled, row, bg);
+            let after = cells_with_bg(&scrolled, row, bg);
+            assert_eq!(before.len(), 3, "{}", body_text(&unscrolled));
+            assert_eq!(
+                after,
+                before.iter().map(|x| x - 3).collect::<Vec<_>>(),
+                "{}",
+                body_text(&scrolled)
+            );
+        }
+        assert_eq!(
+            marked(&scrolled, &app, "x = foo;"),
+            ("foo".to_string(), "bar".to_string())
+        );
+    }
+
+    #[test]
+    fn should_keep_the_mark_on_both_visual_rows_of_a_wrapped_column() {
+        // Wrapping keeps a token whole when it fits, so the changed token is
+        // wider than a column and must split. The unchanged head keeps the
+        // pair under the dissimilar guard.
+        let head = "a".repeat(100);
+        let token = |prefix: &str| format!("{prefix}{}", "b".repeat(90));
+        let mut app = pair_app(
+            &format!("{head} {}", token("old_")),
+            &format!("{head} {}", token("new_")),
+        );
+        app.set_diff_wrap(true);
+        app.rebuild_annotations();
+        let buffer = draw_sbs(&mut app, 160, 12);
+
+        let first = row_containing(&buffer, "aaaaaaaaaa");
+        let rows_marked = |bg: Color| -> (usize, String) {
+            let rows: Vec<String> = (first..buffer.area.height)
+                .map(|y| text_with_bg(&buffer, y, bg))
+                .filter(|text| !text.is_empty())
+                .collect();
+            (rows.len(), rows.concat())
+        };
+        assert_eq!(
+            rows_marked(app.theme.word_del_bg()),
+            (2, token("old_")),
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(rows_marked(app.theme.word_add_bg()), (2, token("new_")));
+    }
+
+    #[test]
+    fn should_show_a_search_match_inside_a_changed_token_in_the_search_background() {
+        // The first match is on the context line, so the cursor row, whose
+        // paint covers everything but a search match, is not the pair's row.
+        let mut app = make_pr_app_with(vec![change_block_file(
+            "bar context",
+            &["let x = foobar;"],
+            &["let x = bazbar;"],
+        )]);
+        app.search_buffer = "bar".to_string();
+        assert!(app.search_in_diff_from_cursor());
+        let buffer = draw_sbs(&mut app, 80, 10);
+
+        let row = row_containing(&buffer, "let x = foobar;");
+        assert_eq!(
+            text_with_bg(&buffer, row, app.theme.search_match_bg),
+            "barbar",
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            marked(&buffer, &app, "let x = foobar;"),
+            ("foo".to_string(), "baz".to_string())
+        );
+    }
+
+    #[test]
+    fn should_mark_wide_characters_and_keep_the_divider_aligned() {
+        // Columns are cut and padded by display width, so a wide character
+        // does not push the divider.
+        let mut app = pair_app("name = 値;", "name = 値段;");
+        app.set_diff_wrap(false);
+        let buffer = draw_sbs(&mut app, 60, 10);
+
+        assert_eq!(
+            marked(&buffer, &app, "name = "),
+            ("値".to_string(), "値段".to_string()),
+            "{}",
+            body_text(&buffer)
+        );
+        let row = row_containing(&buffer, "name = ");
+        assert_eq!(buffer[(divider_x(&app, 60), row)].symbol(), "│");
+    }
+
+    #[test]
+    fn should_mark_a_syntax_highlighted_line_and_keep_its_foreground() {
+        let mut file = change_block_file("context", &["let x = foo;"], &["let x = bar;"]);
+        let theme = crate::theme::Theme::dark();
+        let syntax = |bg: Color, tail: &str| {
+            Some(vec![
+                (
+                    Style::default().fg(Color::Yellow).bg(bg),
+                    "let ".to_string(),
+                ),
+                (Style::default().fg(Color::Blue).bg(bg), tail.to_string()),
+            ])
+        };
+        file.hunks[0].lines[1].highlighted_spans = syntax(theme.syntax_del_bg, "x = foo;");
+        file.hunks[0].lines[2].highlighted_spans = syntax(theme.syntax_add_bg, "x = bar;");
+        let mut app = make_pr_app_with(vec![file]);
+        let buffer = draw_sbs(&mut app, 60, 10);
+
+        let row = row_containing(&buffer, "let x = foo;");
+        assert_eq!(
+            text_with_bg(&buffer, row, theme.syntax_word_del_bg()),
+            "foo",
+            "{}",
+            body_text(&buffer)
+        );
+        assert_eq!(
+            text_with_bg(&buffer, row, theme.syntax_word_add_bg()),
+            "bar"
+        );
+        let marked_fg: Vec<Color> = cells_with_bg(&buffer, row, theme.syntax_word_add_bg())
+            .into_iter()
+            .map(|x| buffer[(x, row)].fg)
+            .collect();
+        assert_eq!(marked_fg, vec![Color::Blue; 3]);
     }
 }
