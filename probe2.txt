@@ -1,68 +1,68 @@
 # probe2 case 01: insert only inside
-foo(a, b)
+foo(a, b, c)
 # probe2 case 02: delete only inside
-bar(x, y, z)
+bar(x, y)
 # probe2 case 03: 1:2 split
-let x = compute(a, b);
+let x = compute(a,
+                b);
 # probe2 case 04: 2:1 join
-let y = combine(p,
-                q);
+let y = combine(p, q);
 # probe2 case 05: gap 1 wide char 3 bytes
-x+値+y
+z-値-w
 # probe2 case 06: gap 2 wide chars 6 bytes
-x+値段+y
+z-値段-w
 # probe2 case 07: gap 3 wide chars
-x+日本語+y
+z-日本語-w
 # probe2 case 08: gap 1 emoji 2 utf16 units
-x+👋+y
+z-👋-w
 # probe2 case 09: gap 2 emoji 4 utf16 units
-x+👋👋+y
+z-👋👋-w
 # probe2 case 10: gap 1 tab
-x	y
+a	b
 # probe2 case 11: gap tab and space
-x	 y
+a	 b
 # probe2 case 12: gap punct run 2
-foo->bar
+baz->qux
 # probe2 case 13: gap 3 punct space
-f(a); g(b)
+f(c); g(d)
 # probe2 case 14: swapped words
-abcd efgh
+efgh abcd
 # probe2 case 15: moved word
-one two three four
+two three four one
 # probe2 case 16: gap 2 between delete-only and insert-only
-a x, b
+a , y b
 # probe2 case 17: gap 2 after insert-only
-a, b
+x a, b
 # probe2 case 18: gap 2 chars uppercase
-fooABbar
+fooABbaz
 # probe2 case 19: 4:4 second unrelated
-k1 = old
-old junk here
-k3 = old
-k4 = old
+k1 = new
+unrelated new stuff
+k3 = new
+k4 = new
 # probe2 case 20: 6:6 all changed
-item_0 = old_0
-item_1 = old_1
-item_2 = old_2
-item_3 = old_3
-item_4 = old_4
-item_5 = old_5
+item_0 = new_0
+item_1 = new_1
+item_2 = new_2
+item_3 = new_3
+item_4 = new_4
+item_5 = new_5
 # probe2 case 21: 3:3 reversed
-alpha one
-beta two
-gamma three
+gamma four
+beta five
+alpha six
 # probe2 case 22: 4:5 uneven similar
-k1 = old
-k2 = old
-k3 = old
-k4 = old
+k1 = new
+k2 = new
+inserted
+k3 = new
+k4 = new
 # probe2 case 23: 5:4 uneven similar
-k1 = old
-k2 = old
-removed
-k3 = old
-k4 = old
+k1 = new
+k2 = new
+k3 = new
+k4 = new
 # probe2 case 24: 2:2 one side empty line
-keep = 1
-
+keep = 2
+new line
 # end
