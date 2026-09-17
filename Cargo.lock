@@ -2405,6 +2405,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "similar"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f66ca1f7aca2474dc10c942eb22feffc897735f54cd1db90138c2fddb490987"
+dependencies = [
+ "bstr",
+]
+
+[[package]]
 name = "siphasher"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2898,6 +2907,7 @@ dependencies = [
  "sha1",
  "sha2",
  "shlex 1.3.0",
+ "similar",
  "syntect",
  "tar",
  "tempfile",
@@ -2907,6 +2917,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "two-face",
+ "unicode-segmentation",
  "unicode-width",
  "ureq",
  "uuid",

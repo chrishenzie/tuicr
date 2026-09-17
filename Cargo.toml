@@ -70,6 +70,16 @@ zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 syntect = "5.2"
 two-face = { version = "0.5", default-features = false, features = ["syntect-default-fancy"] }
 
+# Word diff: sequence diff over token slices (`capture_diff_slices`) for the
+# changed-token highlight inside a line pair. Only the core diff algorithms are
+# used; the `text` line-diff API, its `inline` refinement, and the `unicode`
+# grapheme support are off. `std` is on: without it the crate is `no_std` and
+# uses `BTreeMap` for its internal maps.
+similar = { version = "3.2", default-features = false, features = ["std"] }
+# Word diff: the tokenizer walks grapheme clusters, so a token, and with it a
+# highlight, never ends inside one.
+unicode-segmentation = "1"
+
 # Terminal background detection
 terminal-colorsaurus = "1"
 pulldown-cmark = { version = "0.13.4", default-features = false }

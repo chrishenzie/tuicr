@@ -224,6 +224,8 @@ Repository-managed agent integrations:
 - `toml`: User config parsing
 - `arboard`: Clipboard access
 - `ignore`: Gitignore-style matcher for `.tuicrignore`
+- `similar`: Sequence diff over token slices for word diff; its inline mode and ratio threshold are not used
+- `unicode-segmentation`: Grapheme clusters for the word-diff tokenizer, so a token never splits one
 - `chrono`: Timestamps
 - `thiserror` + `anyhow`: Error handling
 
