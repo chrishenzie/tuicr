@@ -167,6 +167,28 @@ pub fn search_match_style(theme: &Theme) -> Style {
     Style::default().bg(theme.search_match_bg)
 }
 
+/// Background-only, so patching it over a span keeps the span's foreground and
+/// modifiers. `syntax_highlighted` selects the variant matching the line's
+/// background.
+pub fn word_del_style(theme: &Theme, syntax_highlighted: bool) -> Style {
+    let bg = if syntax_highlighted {
+        theme.syntax_word_del_bg()
+    } else {
+        theme.word_del_bg()
+    };
+    Style::default().bg(bg)
+}
+
+/// The addition counterpart of [`word_del_style`].
+pub fn word_add_style(theme: &Theme, syntax_highlighted: bool) -> Style {
+    let bg = if syntax_highlighted {
+        theme.syntax_word_add_bg()
+    } else {
+        theme.word_add_bg()
+    };
+    Style::default().bg(bg)
+}
+
 pub fn help_indicator_style(theme: &Theme) -> Style {
     Style::default().fg(theme.help_indicator).bg(theme.panel_bg)
 }
@@ -183,4 +205,40 @@ pub fn error_inline_style(theme: &Theme) -> Style {
 
 pub fn pseudo_commit_tag_style(theme: &Theme) -> Style {
     Style::default().fg(theme.file_modified)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_build_background_only_word_styles() {
+        let theme = Theme::dark();
+        let styles = [
+            word_del_style(&theme, false),
+            word_add_style(&theme, false),
+            word_del_style(&theme, true),
+            word_add_style(&theme, true),
+        ];
+        for style in styles {
+            assert!(style.bg.is_some());
+            assert_eq!(style.fg, None);
+            assert_eq!(style.add_modifier, Modifier::empty());
+        }
+    }
+
+    #[test]
+    fn should_pick_word_background_for_the_line_variant() {
+        let theme = Theme::dark();
+        assert_eq!(word_del_style(&theme, false).bg, Some(theme.word_del_bg()));
+        assert_eq!(word_add_style(&theme, false).bg, Some(theme.word_add_bg()));
+        assert_eq!(
+            word_del_style(&theme, true).bg,
+            Some(theme.syntax_word_del_bg())
+        );
+        assert_eq!(
+            word_add_style(&theme, true).bg,
+            Some(theme.syntax_word_add_bg())
+        );
+    }
 }

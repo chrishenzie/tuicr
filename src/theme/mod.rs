@@ -2431,6 +2431,40 @@ impl Theme {
     pub fn section_highlight_bg(&self) -> Color {
         shift_lightness(self.panel_bg, 18)
     }
+
+    /// Word-diff background for a deletion line drawn with the plain diff
+    /// background.
+    pub fn word_del_bg(&self) -> Color {
+        self.word_bg(self.diff_del_bg, self.diff_del)
+    }
+
+    /// Word-diff background for an addition line drawn with the plain diff
+    /// background.
+    pub fn word_add_bg(&self) -> Color {
+        self.word_bg(self.diff_add_bg, self.diff_add)
+    }
+
+    /// Word-diff background for a syntax-highlighted deletion line.
+    pub fn syntax_word_del_bg(&self) -> Color {
+        self.word_bg(self.syntax_del_bg, self.diff_del)
+    }
+
+    /// Word-diff background for a syntax-highlighted addition line.
+    pub fn syntax_word_add_bg(&self) -> Color {
+        self.word_bg(self.syntax_add_bg, self.diff_add)
+    }
+
+    /// The line's background blended toward its foreground, the derivation
+    /// local themes use for `search_match_bg`. A theme does not need a key
+    /// for it. Named colors cannot be blended: `blend` would return the
+    /// foreground and hide the marked token, so a local theme using one gets
+    /// `bg_highlight`.
+    fn word_bg(&self, line_bg: Color, line_fg: Color) -> Color {
+        match (line_bg, line_fg) {
+            (Color::Rgb(..), Color::Rgb(..)) => blend(line_bg, line_fg, 30),
+            _ => self.bg_highlight,
+        }
+    }
 }
 
 fn shift_lightness(c: Color, amount: i32) -> Color {
@@ -2947,6 +2981,57 @@ mode_bg = "#82aaff"
     fn should_return_accent_for_non_rgb_blend_inputs() {
         let accent = Color::Rgb(100, 110, 120);
         assert_eq!(blend(Color::Reset, accent, 50), accent);
+    }
+
+    #[test]
+    fn should_derive_word_backgrounds_distinct_from_line_backgrounds_for_every_builtin_theme() {
+        for (name, arg) in ThemeArg::choices() {
+            let theme = resolve_theme(*arg);
+            let derived = [
+                ("word_del_bg", theme.word_del_bg(), theme.diff_del_bg),
+                ("word_add_bg", theme.word_add_bg(), theme.diff_add_bg),
+                (
+                    "syntax_word_del_bg",
+                    theme.syntax_word_del_bg(),
+                    theme.syntax_del_bg,
+                ),
+                (
+                    "syntax_word_add_bg",
+                    theme.syntax_word_add_bg(),
+                    theme.syntax_add_bg,
+                ),
+            ];
+            for (label, word_bg, line_bg) in derived {
+                assert_ne!(
+                    word_bg, line_bg,
+                    "{name}: {label} equals its line background"
+                );
+                assert!(
+                    matches!(word_bg, Color::Rgb(..)),
+                    "{name}: {label} is not a blended RGB color: {word_bg:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn should_blend_word_backgrounds_toward_the_line_foreground() {
+        let theme = Theme::dark();
+        assert_eq!(theme.word_del_bg(), Color::Rgb(121, 27, 27));
+        assert_eq!(theme.word_add_bg(), Color::Rgb(24, 108, 50));
+        assert_eq!(theme.syntax_word_del_bg(), Color::Rgb(103, 27, 27));
+        assert_eq!(theme.syntax_word_add_bg(), Color::Rgb(24, 90, 44));
+    }
+
+    #[test]
+    fn should_fall_back_to_bg_highlight_for_named_line_colors() {
+        let mut theme = Theme::dark();
+        theme.diff_del = Color::Red;
+        theme.diff_add_bg = Color::Green;
+        assert_eq!(theme.word_del_bg(), theme.bg_highlight);
+        assert_eq!(theme.syntax_word_del_bg(), theme.bg_highlight);
+        assert_eq!(theme.word_add_bg(), theme.bg_highlight);
+        assert_ne!(theme.syntax_word_add_bg(), theme.bg_highlight);
     }
 
     #[test]
