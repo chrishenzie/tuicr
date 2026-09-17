@@ -208,6 +208,9 @@ In command mode,
 | `:set wrap!` | Toggle line wrap in diff view |
 | `:set relativenumber` / `:set norelativenumber` | Enable / disable relative rendered-row numbers |
 | `:set relativenumber!` | Toggle relative rendered-row numbers |
+| `:set worddiff` | Highlight the changed tokens inside modified lines |
+| `:set noworddiff` | Show modified lines without the changed-token highlight |
+| `:set worddiff!` | Toggle the changed-token highlight |
 | `:set commits` | Show inline commit selector |
 | `:set nocommits` | Hide inline commit selector |
 | `:set commits!` | Toggle inline commit selector |
@@ -235,6 +238,33 @@ losing their reviewed state.
 
 `draft` applies to GitHub only. `comment` and `approve` work on GitHub, GitLab, and Bitbucket.
 `request-changes` works on GitHub and GitLab, but not Bitbucket yet.
+
+### Word diff
+
+Inside each modified line pair, tuicr highlights the tokens that differ between the
+deleted line and the added line, in both the unified and the side-by-side views. The
+highlight is a stronger shade of the line's own background. It is on by default. Turn
+it off permanently with `word_diff = false` in `config.toml`, or for the session with
+`:set noworddiff`. The setting holds across `:e` and commit selection.
+
+A token is a run of identifier characters (letters, digits, and underscore, in any
+script), a single other non-whitespace character, or a run of whitespace. A token
+never splits a grapheme cluster: a combining mark stays with the letter before it, and
+a flag or a skin-toned emoji is one token. A changed indent is marked unless
+`ignore_whitespace` is set, in which case word diff ignores whitespace as well. The
+token rule is not configurable.
+
+Lines pair by position within a change block, a run of deletions followed by the run
+of additions that replaces it: the first deletion with the first addition, and so on.
+Both views mark the same characters. When one side of a block has more lines, the
+unpaired tail is left plain. A pure insertion or deletion is never marked.
+
+When most of a pair's non-whitespace characters would be marked, tuicr treats the
+lines as a rewrite and shows them as ordinary deletion and addition lines. The
+threshold is not configurable.
+
+Syntax highlighting shows through the word highlight. A search match inside a changed
+token keeps the search color.
 
 ## Commit selection / review target selector
 

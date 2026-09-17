@@ -106,7 +106,7 @@ src/
     ├── help_popup.rs    # Help overlay (? key)
     ├── summary_popup.rs # :summary view of pending local-draft comments
     ├── comment_panel.rs # Comment input dialog, confirm dialog
-    ├── word_diff.rs     # Word diff over line pairs: word_ranges() diffs a pair's tokens; HunkWordRanges pairs a hunk's lines for the unified renderer
+    ├── word_diff.rs     # Word diff: token rule, line-pair ranges, hunk pairing
     └── styles.rs        # Color constants and style helper functions
 ```
 
@@ -161,6 +161,50 @@ Repository-managed agent integrations:
 - Keys are focus-scoped via `map_file_tree_mode`: the tree claims `i`/`e`/`I`/`E`/`/`, the
   diff keeps `i` = edit comment and `/` = search diff
 
+**Word diff** (`src/ui/word_diff.rs`, painted by `src/ui/diff_unified.rs` and `src/ui/diff_side_by_side.rs`):
+
+- Word diff highlights, inside a *line pair*, the *tokens* that differ between the deletion
+  line and the addition line. A *change block* is a maximal run of deletions followed by
+  the run of additions right after it, within one hunk. `DiffHunk::segments()` is the one
+  definition of a block and `ChangeBlock::rows()` the one definition of its pairs; the
+  side-by-side renderer and `rebuild_annotations` walk `segments()` directly, and the
+  unified renderer reaches the same blocks through `HunkWordRanges` (over
+  `change_blocks()`), so the views and the annotation model cannot disagree. A *line pair*
+  is the deletion and addition at the same offset in a block: N deletions and M additions
+  give min(N, M) pairs and an unpaired tail that renders plain. A *word range* is a byte
+  range of a line's displayed text that is marked. A *dissimilar pair* is one whose changed
+  share exceeds `MAX_CHANGED_SHARE` and is rendered without ranges; the guard is a
+  constant, not a key.
+- **Word ranges are a property of a pair, never of a line.** They are computed at render
+  time for the visible rows on every frame and are never stored on `DiffLine`. Pairing is
+  a rendering decision, so nothing in `vcs/`, the loaders, or the caches knows about word
+  diff. Do not add ranges to the line model or a flag to `VcsBackend`.
+- `tokenize()` is the only place the token rule lives (identifier run, single other
+  non-whitespace character, whitespace run; its rustdoc has the details). The rule is
+  deliberately not configurable; a configurable word rule would replace that function only.
+- Both renderers get a pair's ranges from `line_pair_ranges()` and paint them with
+  `apply_word_highlight()`, so the session's settings (`App::word_diff`, the whitespace
+  mode) and the word style are each applied in one place. `word_ranges()` diffs the token
+  sequences with `similar` (sequence diff only). The unified renderer walks lines flat, so
+  it reaches pairs through `HunkWordRanges`; the rustdoc on each of these covers the rest.
+- **The toggle lives on `App`, not on `diff_state`.** `App::word_diff` (config `word_diff`,
+  `:set worddiff` / `:set noworddiff` / `:set worddiff!`, `set_word_diff` and
+  `toggle_word_diff` in `app/navigation.rs`) sits next to `relative_line_numbers`.
+  `DiffState::default()` runs on most load paths, so a flag there would revert on `:e` or a
+  commit switch. With the flag off the renderers short-circuit before any tokenizing.
+- The word highlight is background-only and sits between the syntax spans and the search
+  highlight, applied to the full line before wrapping, truncation, or horizontal scroll (the
+  rustdoc on `content_spans_for_diff_line` in `diff_side_by_side.rs` states the order). The
+  backgrounds come from `Theme::word_del_bg`/`word_add_bg` and their `syntax_` variants,
+  blended from the line background toward its foreground like `search_match_bg`; there is
+  no dedicated theme key, so local theme files need no change.
+- **Unified renderer: the end-of-line marker stays the last span**, and the gutter spans
+  keep their indices, because row background painting reads both. Apply the word highlight
+  to the content spans only (`split_off(content_start)`) and before the marker is appended.
+- In Comment mode both renderers build every row, so word diff runs across the whole diff
+  per frame. Nothing is cached across frames; measure that cost in the render benchmark,
+  `src/app/tests/render_perf_tests.rs`.
+
 **InputMode** (`src/app.rs`):
 
 - `Normal` - default navigation mode
@@ -192,8 +236,8 @@ Repository-managed agent integrations:
 
 ### Data Flow
 
-1. **Startup**: Parse CLI args (invalid `--theme` exits non-zero). `tuicr update` exits before TUI setup: Homebrew, Cargo, Mise, and Nix profile installs delegate to their package manager; direct binaries fetch the matching GitHub release asset, verify its GitHub-provided SHA-256 digest, and replace the executable. `tuicr update <version>` installs an exact Cargo or direct-binary release for rollback and release testing; managers without a safe generic pin command return an error. With no subcommand, or with explicit `tuicr tui`, load config from `$XDG_CONFIG_HOME/tuicr/config.toml` (default `~/.config/tuicr/config.toml`, or `%APPDATA%\tuicr\config.toml` on Windows), ignore unknown config keys with startup warnings, resolve theme precedence (`--theme` > config > dark), then call `App::new()`. Theme selection first checks bundled names, then local theme files from `$XDG_CONFIG_HOME/tuicr/themes/` (default `~/.config/tuicr/themes/`, or `%APPDATA%\tuicr\themes\` on Windows). Local theme files may reference a local `.tmTheme` syntax theme. Some bat-compatible Base16 `.tmTheme` files encode ANSI palette slots as placeholders, and `src/syntax/mod.rs` translates those at render time. `App::new()` calls `detect_vcs()` (Jujutsu first, then Git, then Mercurial), using config `backend = "libgit2"` or `backend = "cli"` for Git. Normal Git repos default to libgit2; sparse checkout repos automatically use the Git CLI backend and show a startup warning when that overrides the default. It filters diff files via repo-root `.tuicrignore`, then enters commit selection mode by default. If staged/unstaged changes exist, the first selection rows are "Staged changes" and/or "Unstaged changes". The Pull Requests tab can toggle between all open PRs and forge PRs/MRs requesting the current user's review with `r`, which refetches page 1 using `gh pr list --search "review-requested:@me"` on GitHub, `glab mr list --reviewer=@me` on GitLab, or a `q=state="OPEN" AND reviewers.uuid="…"` filter on Bitbucket (the state clause must live inside `q`; Cloud ignores a standalone `state` parameter once `q` is present). With `-r/--revisions`, it opens the requested commit range directly. Config `show_file_list = false` hides the file list panel on startup (toggleable with `<leader>e`, where `leader` defaults to `;`). Config `diff_view = "side-by-side"` sets the default diff layout (toggleable with `:diff`). Config `wrap = true` enables line wrapping (toggleable with `:set wrap!`). Config `word_diff = false` turns off the word highlight inside changed line pairs (default on; toggleable with `:set worddiff!`, and the flag lives on `App`, not `diff_state`, so it survives reloads). Config `review_watch_interval_ms = 1000` controls persisted-session polling; set it to `0` to disable. Config `diff_watch_interval_ms` (default `0`, disabled) periodically re-runs the local diff reload so uncommitted changes appear without `:e`; ignored for pull-request and `--all-files` reviews. The same tick refreshes the inline commit pane, so a commit written mid-review appears, and the "Staged changes" and "Unstaged changes" rows follow the tree as files are staged and unstaged.
-2. **Render**: `ui::render()` draws the TUI based on `App` state. When rendered comments exist, the left sidebar splits vertically into file tree and comment navigator; the navigator is hidden when there are no rendered comment rows. `InputMode::Summary` replaces the diff while preserving the file sidebar when enabled, and lists every `local_draft` review-, file-, and line-level comment in the active session. The selected comment is highlighted, and the view scrolls as needed to keep it visible.
+1. **Startup**: Parse CLI args (invalid `--theme` exits non-zero). `tuicr update` exits before TUI setup: Homebrew, Cargo, Mise, and Nix profile installs delegate to their package manager; direct binaries fetch the matching GitHub release asset, verify its GitHub-provided SHA-256 digest, and replace the executable. `tuicr update <version>` installs an exact Cargo or direct-binary release for rollback and release testing; managers without a safe generic pin command return an error. With no subcommand, or with explicit `tuicr tui`, load config from `$XDG_CONFIG_HOME/tuicr/config.toml` (default `~/.config/tuicr/config.toml`, or `%APPDATA%\tuicr\config.toml` on Windows), ignore unknown config keys with startup warnings, resolve theme precedence (`--theme` > config > dark), then call `App::new()`. Theme selection first checks bundled names, then local theme files from `$XDG_CONFIG_HOME/tuicr/themes/` (default `~/.config/tuicr/themes/`, or `%APPDATA%\tuicr\themes\` on Windows). Local theme files may reference a local `.tmTheme` syntax theme. Some bat-compatible Base16 `.tmTheme` files encode ANSI palette slots as placeholders, and `src/syntax/mod.rs` translates those at render time. `App::new()` calls `detect_vcs()` (Jujutsu first, then Git, then Mercurial), using config `backend = "libgit2"` or `backend = "cli"` for Git. Normal Git repos default to libgit2; sparse checkout repos automatically use the Git CLI backend and show a startup warning when that overrides the default. It filters diff files via repo-root `.tuicrignore`, then enters commit selection mode by default. If staged/unstaged changes exist, the first selection rows are "Staged changes" and/or "Unstaged changes". The Pull Requests tab can toggle between all open PRs and forge PRs/MRs requesting the current user's review with `r`, which refetches page 1 using `gh pr list --search "review-requested:@me"` on GitHub, `glab mr list --reviewer=@me` on GitLab, or a `q=state="OPEN" AND reviewers.uuid="…"` filter on Bitbucket (the state clause must live inside `q`; Cloud ignores a standalone `state` parameter once `q` is present). With `-r/--revisions`, it opens the requested commit range directly. Config `show_file_list = false` hides the file list panel on startup (toggleable with `<leader>e`, where `leader` defaults to `;`). Config `diff_view = "side-by-side"` sets the default diff layout (toggleable with `:diff`). Config `wrap = true` enables line wrapping (toggleable with `:set wrap!`). Config `word_diff = false` turns off the word highlight inside changed line pairs (default on; toggleable with `:set worddiff!`). Config `review_watch_interval_ms = 1000` controls persisted-session polling; set it to `0` to disable. Config `diff_watch_interval_ms` (default `0`, disabled) periodically re-runs the local diff reload so uncommitted changes appear without `:e`; ignored for pull-request and `--all-files` reviews. The same tick refreshes the inline commit pane, so a commit written mid-review appears, and the "Staged changes" and "Unstaged changes" rows follow the tree as files are staged and unstaged.
+2. **Render**: `ui::render()` draws the TUI based on `App` state. Both diff renderers compute word ranges for the visible line pairs on each frame (see **Word diff** under Key Types). When rendered comments exist, the left sidebar splits vertically into file tree and comment navigator; the navigator is hidden when there are no rendered comment rows. `InputMode::Summary` replaces the diff while preserving the file sidebar when enabled, and lists every `local_draft` review-, file-, and line-level comment in the active session. The selected comment is highlighted, and the view scrolls as needed to keep it visible.
 3. **Input**: `crossterm` events → `map_key_to_action` → match on Action in main loop. The `:summary` command transitions from command mode to `InputMode::Summary` with the first pending comment selected. `j`/`k` selects the next or previous comment, `Enter` returns to the continuous diff from single-file view if necessary and moves the diff cursor to the selected comment; `Esc` returns to `Normal` without jumping. A reviewed file or hunk is revealed for the jump without clearing its persisted reviewed state.
 4. **Comments**: `App::save_comment()` builds an `AddCommentRequest` and calls `add_comment_to_session()` so TUI and library callers share insertion behavior. The TUI creates a persisted session file as soon as a review session becomes active, so `tuicr review add` can target it immediately. Successful comment submits autosave the session using a locked, atomic write that merges externally added comments first.
 5. **Review CLI**: `tuicr review list|add|comments` exits before TUI startup, uses `ReviewStore`, and always emits JSON; `review list` includes `active: true` for currently open TUI sessions and a `kind` (`local`/`pr`) per session, and `review add --input` accepts JSON literal, `@file`, or stdin payloads. `--repo` is a _selector_: a checkout path (matches its local sessions + PR sessions for its `origin` repo) or a forge coordinate like `owner/repo` / a repo URL (matches local + PR sessions by owner/repo, parsed from each session's slug). PR sessions thus surface by naming the repo; `review list --all` dumps everything. Resolve a PR session with its emitted slug (`gh:owner/repo/pr/N`), which is self-contained and needs no `--repo`.
@@ -225,7 +269,7 @@ Repository-managed agent integrations:
 - `toml`: User config parsing
 - `arboard`: Clipboard access
 - `ignore`: Gitignore-style matcher for `.tuicrignore`
-- `similar`: Sequence diff over token slices for word diff; its inline mode and ratio threshold are not used
+- `similar`: Sequence diff over token slices for word diff
 - `unicode-segmentation`: Grapheme clusters for the word-diff tokenizer, so a token never splits one
 - `chrono`: Timestamps
 - `thiserror` + `anyhow`: Error handling

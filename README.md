@@ -14,6 +14,8 @@
 ## What it does
 
 - GitHub-style continuous diff in the terminal. Scroll through every changed file in one stream.
+- Word diff: the tokens that changed inside a modified line are highlighted, in both the unified
+  and side-by-side views.
 - PR-style comments at the line, range, file, and review level. 
 - Review tracking at file or hunk granularity, persisted across sessions.
 - Three export targets: push a real review to GitHub, GitLab, or Bitbucket, copy structured
@@ -239,6 +241,7 @@ mouse = true
 leader = ";"                  # configurable prefix for leader shortcuts
 comment_vim = false           # vim modal editing in the review comment box
 relative_line_numbers = false # show rendered-row distances in the diff gutter
+word_diff = true              # highlight the changed tokens inside modified lines
 
 [[comment_types]]
 id = "issue"
@@ -286,6 +289,7 @@ A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 | `y` | Copy review to clipboard |
 | `:edit` | Open focused file in `$EDITOR` |
 | `:submit` | Push review to GitHub, GitLab, or Bitbucket |
+| `:set worddiff!` | Toggle the changed-token highlight inside modified lines |
 | `Tab` in `:` prompt | Complete or cycle commands |
 | `?` | Toggle full help |
 
